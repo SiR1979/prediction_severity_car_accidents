@@ -90,6 +90,67 @@ class TechnicalPipelineTests(unittest.TestCase):
         self.assertIn("error_type", status)
         self.assertFalse(((run or self.run) / "validation_report.json").exists())
 
+    def assert_no_pipeline_activity(self, tracker):
+        """Rejected inputs must not start processing, estimator execution or tracking."""
+        self.process.assert_not_called()
+        self.train.assert_not_called()
+        self.loader.assert_not_called()
+        self.model.fit.assert_not_called()
+        self.model.predict.assert_not_called()
+        self.model.score.assert_not_called()
+        self.assertEqual(tracker.mock_calls, [])
+        self.assertEqual(tracker.state, {})
+
+    def test_each_missing_or_empty_raw_input_is_rejected_before_run_creation(self):
+        """Every required input guard preserves other bytes and creates no run artifacts."""
+        original_inputs = {name: (self.raw / name).read_bytes() for name in pipeline.RAW_FILENAMES}
+        for name in pipeline.RAW_FILENAMES:
+            for empty in (False, True):
+                with self.subTest(filename=name, empty=empty):
+                    path = self.raw / name
+                    expected_inputs = dict(original_inputs)
+                    if empty:
+                        path.write_bytes(b"")
+                        expected_inputs[name] = b""
+                    else:
+                        path.unlink()
+                        del expected_inputs[name]
+                    tracker = Mock(spec=("start", "phase", "finish", "fail", "state"), state={})
+                    try:
+                        with self.assertRaisesRegex(ValueError, "Required input is missing or empty") as caught:
+                            pipeline.run_pipeline(self.raw, self.run, tracker=tracker)
+                        self.assertIn(name, str(caught.exception))
+                        self.assert_no_pipeline_activity(tracker)
+                        self.assertFalse(self.run.exists())
+                        self.assertEqual(set(self.root.iterdir()), {self.raw})
+                        self.assertEqual({item.name for item in self.raw.iterdir()}, set(expected_inputs))
+                        for remaining_name, original_bytes in expected_inputs.items():
+                            self.assertEqual((self.raw / remaining_name).read_bytes(), original_bytes)
+                    finally:
+                        path.write_bytes(original_inputs[name])
+
+    def test_run_directory_equal_to_or_nested_in_raw_is_rejected_without_artifacts(self):
+        """Both protected locations retain the existing raw directory and all input bytes."""
+        original_inputs = {name: (self.raw / name).read_bytes() for name in pipeline.RAW_FILENAMES}
+        locations = (("equal", self.raw), ("nested", self.raw / "nested" / "run"))
+        for location, run in locations:
+            with self.subTest(location=location):
+                self.assertTrue(self.raw.is_dir())
+                tracker = Mock(spec=("start", "phase", "finish", "fail", "state"), state={})
+                with self.assertRaisesRegex(ValueError, "The run directory must be outside the raw directory"):
+                    pipeline.run_pipeline(self.raw, run, tracker=tracker)
+                self.assert_no_pipeline_activity(tracker)
+                self.assertTrue(self.raw.is_dir())
+                self.assertEqual(set(self.root.iterdir()), {self.raw})
+                self.assertEqual({item.name for item in self.raw.iterdir()}, set(original_inputs))
+                for name, original_bytes in original_inputs.items():
+                    self.assertEqual((self.raw / name).read_bytes(), original_bytes)
+                for artifact in ("run_status.json", "validation_report.json", "model", "preprocessed"):
+                    self.assertFalse((run / artifact).exists())
+                if location == "nested":
+                    self.assertFalse(run.exists())
+                    self.assertFalse((self.raw / "nested").exists())
+
     def test_success_records_technical_identity_without_evaluation(self):
         self.assertEqual(pipeline.run_pipeline(self.raw, self.run), self.run)
         status = self.read_status()
