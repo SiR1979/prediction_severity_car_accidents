@@ -57,7 +57,7 @@ async function request(path, options = {}) {
 }
 
 function hasIdentity(payload) {
-  return payload.contract_version === CONTRACT && /^[a-f0-9]{64}$/.test(payload.model_sha256);
+  return payload.contract_version === CONTRACT && typeof payload.model_sha256 === "string" && /^[a-f0-9]{64}$/.test(payload.model_sha256);
 }
 
 async function checkApi() {
