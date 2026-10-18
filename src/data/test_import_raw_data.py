@@ -198,17 +198,16 @@ def test_empty_file_list_performs_no_download(tmp_path, importer, folder_exists)
         importer.prompt.assert_called_once()
 
 
-def test_declined_folder_creation_still_attempts_download_then_fails(tmp_path, importer):
-    """Characterize the inherited continuation after refusal without endorsing it."""
+@pytest.mark.parametrize("answer", ["n", "N"])
+def test_declined_folder_creation_returns_without_download_or_paths(tmp_path, importer, answer):
+    """Either refusal cancels normally without making an HTTP request or creating paths."""
     folder = tmp_path / "missing"
-    importer.prompt.side_effect = ["n"]
-    importer.get.side_effect = None
-    importer.get.return_value = SimpleNamespace(status_code=200, text="sample;1\n")
+    importer.prompt.side_effect = [answer]
 
-    with pytest.raises(FileNotFoundError):
-        importer.module.import_raw_data(folder, ["sample.csv"], BUCKET_URL)
+    result = importer.module.import_raw_data(folder, ["sample.csv"], BUCKET_URL)
 
+    assert result is None
     assert not folder.exists()
     assert list(tmp_path.iterdir()) == []
     importer.prompt.assert_called_once()
-    importer.get.assert_called_once_with("https://example.invalid/raw/sample.csv")
+    importer.get.assert_not_called()
