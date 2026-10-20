@@ -10,6 +10,8 @@ def import_raw_data(raw_data_relative_path,
     '''import filenames from bucket_folder_url in raw_data_relative_path'''
     if check_existing_folder(raw_data_relative_path):
         os.makedirs(raw_data_relative_path)
+    elif not os.path.exists(raw_data_relative_path):
+        return
     # download all the files
     for filename in filenames :
         input_file = os.path.join(bucket_folder_url,filename)
