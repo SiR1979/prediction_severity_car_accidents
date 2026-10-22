@@ -15,6 +15,7 @@ proposed architecture. It introduces no runtime or deployment validation.
 | Local inventory, 2026-10-21T15:14:05.5679058Z | Branch work/raw-import-unit-tests, HEAD 6e2872496eded66cbbdb790cdcc8d4acbf8cf8da; prior architecture SHA-256 37c156532b9e92ad45a450fcfe28bba32575f5dac2e9fc33f70603f6a67ee049 | Supplied console evidence; no remote refresh or code execution |
 | Local API/app observation, 2026-10-21T10:06:46.5283466Z–10:07:03.8135471Z | Both expected containers reported running and healthy; no model switch; delivery approval false | Only that window, not present availability or full functional acceptance |
 | Functional report: data/runs/validation_20261003T193310Z_56c49087/validation_report.json | Historical source/data/model hashes and reference metrics described in the previous architecture | Report not re-executed or independently reread for this documentation update |
+| Repository configuration on master, 2026-10-22 | Shared DagsHub storage and tracking target, CI jobs (section "Shared storage, tracking target and CI") | Configuration and recorded checks; no new pipeline run |
 | Mentor roadmap dated 2026-10-01 and discussion dated 2026-10-15 | Planning direction and distinction between component architecture and use-case flows | Not execution authority or a final assessment rubric |
 
 The French original project brief governs interpretation of the English
@@ -27,7 +28,7 @@ MLOps acceptance levels: Level 1 is mandatory; Level 2 is a separate extension.
 
 Preserve the supplied 2021 data, preprocessing and Random Forest approach.
 Model semantics change only after a necessary correction is specified by the
-mentor and the user authorises the resulting change.
+mentor and the team agrees to the resulting change.
 
 - Four supplied raw CSVs feed the inherited merging, recoding, feature
   calculations and severity-dependent road-user row selection.
@@ -95,6 +96,55 @@ This document establishes no new recovery result. DVC_SITE_CACHE_DIR=/tmp/dvc-si
 separates temporary tool state from persistent content. Local object storage
 does not establish protection against loss of the host drive.
 
+### Shared storage, tracking target and CI
+
+Added 2026-10-22. These parts were configured after the 2026-10-11 source.
+
+- **DVC remote:** `.dvc/config` sets `dagshub`
+  (`https://dagshub.com/SiR1979/prediction_severity_car_accidents.dvc`) as the
+  default remote. It holds only the four raw 2021 CSVs (`versioning/raw_2021.dvc`).
+  Prepared data, models and run artifacts are not on the shared remote.
+  Each person authenticates with their own DagsHub token in the Git-ignored
+  `.dvc/config.local`; see versioning.md.
+- **MLflow tracking target:** new pipeline runs can be tracked either on the
+  local MLflow 3.17.0 service or on the DagsHub MLflow server
+  (`https://dagshub.com/SiR1979/prediction_severity_car_accidents.mlflow`, MLflow
+  3.x). The tracking URI selects the target. DagsHub uses verified HTTPS and the
+  personal token from `MLFLOW_TRACKING_USERNAME`/`MLFLOW_TRACKING_PASSWORD`; the
+  token is not recorded in tags, provenance or artifacts. Provenance and artifact
+  hash checks are identical for both targets; runs carry `tracking_target` and
+  `tracking_server_version`. See tracking.md.
+- **CI:** `.github/workflows/python-app.yml` runs on pushes and pull requests to
+  `master` with two independent jobs: Python 3.11 with the pinned runtime, API
+  and tracking requirements, flake8 and pytest; and the JavaScript app-logic
+  tests on Node.js 24. CI runs unit tests with test doubles only; it performs no
+  real training, DVC transfer or deployment.
+
+```mermaid
+flowchart LR
+    subgraph LOCAL["Team member machine"]
+        WORK["Repository clone and data/raw"]
+        JOB["pipeline-run job"]
+        LMLFLOW["Local MLflow (optional)"]
+    end
+    subgraph DAGSHUB["DagsHub (external, HTTPS, personal token)"]
+        DVCREMOTE["DVC remote: raw 2021 data"]
+        RMLFLOW["MLflow server: shared runs and artifacts"]
+    end
+    subgraph GITHUB["GitHub"]
+        REPO["Repository: code and DVC pointers"]
+        CI["Actions: Python and JavaScript test jobs"]
+    end
+    WORK -->|"dvc pull / push raw data"| DVCREMOTE
+    JOB -->|"Track run: local target"| LMLFLOW
+    JOB -->|"Track run: dagshub target"| RMLFLOW
+    WORK -->|"Push branches, pull requests"| REPO
+    REPO -->|"Trigger on push / pull request"| CI
+```
+
+Legend: arrows show the direction of transfer or triggering. A run uses one
+tracking target. The diagram shows configured connections, not availability.
+
 ### Storage and provenance
 
 | Location | Described role |
@@ -109,6 +159,8 @@ does not establish protection against loss of the host drive.
 | data/preprocessed/ and src/models/trained_model.joblib | Preserved reference data/model |
 | data/reference_snapshots/20261003T182822Z_3490e1df/ | Preserved reference snapshot |
 | data/tracking/ | MLflow SQLite metadata and artifact copies |
+| DagsHub DVC remote | Shared copy of the raw 2021 data only |
+| DagsHub MLflow server | Shared tracking of runs that select the dagshub target |
 | versioning/ | Small DVC pointers and registration metadata |
 
 Source presence, tests with doubles, historical imports and recovered reference
@@ -286,8 +338,6 @@ This diagram authorises no operation.
 - Raw-input conversion, domain class interpretation, prediction-time feature
   availability, agreed thresholds, deployment/access/recovery choices and full
   dependency/base-image locking remain separate decisions or limitations.
-- During governance reconciliation, operational execution including R4 remains
-  paused. Governance closure itself grants no operational authority.
 - Update the relevant view when responsibilities, paths or boundaries change.
   Record dates/versions when changing implementation claims; preserve historical
   reports and source notices. Keep target elements visibly labelled until
