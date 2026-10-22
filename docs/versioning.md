@@ -244,8 +244,9 @@ directory object and four file objects. An authenticated owner-account restore
 into a new empty isolated cache recovered four files totalling 31,082,914 bytes.
 All MD5 and SHA-256 hashes matched. The transfer used DVC 3.67.1.
 
-Anonymous access returned HTTP 401 in the recorded attempt. Colleague-account
-access has not been validated. Prepared data, model files, run artifacts and
+Anonymous access returned HTTP 401 in the recorded attempt. Read access with a
+second team account (`roy-franke`) was confirmed on 2026-10-14: `dvc status --cloud
+versioning/raw_2021.dvc` reported cache and remote in sync. Prepared data, model files, run artifacts and
 reports were not uploaded as part of this shared raw-data transfer.
 
 ### Authentication on a colleague's machine
