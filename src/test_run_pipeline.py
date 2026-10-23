@@ -1,4 +1,4 @@
-"""Verify technical pipeline checks with isolated files and unfitted test doubles."""
+"""Verify workflow stages with isolated files and unfitted estimator doubles."""
 
 import ast
 import hashlib
@@ -25,7 +25,7 @@ def model_double():
     model.n_features_in_ = 28
     model.classes_ = np.array([0, 1])
     model.fit = Mock(side_effect=AssertionError("Real training is forbidden in this suite."))
-    model.predict = Mock(side_effect=AssertionError("Inference is not technical validation."))
+    model.predict = Mock(return_value=np.array([0, 1]))
     model.score = Mock(side_effect=AssertionError("Evaluation must remain separate."))
     return model
 
@@ -151,7 +151,7 @@ class TechnicalPipelineTests(unittest.TestCase):
                     self.assertFalse(run.exists())
                     self.assertFalse((self.raw / "nested").exists())
 
-    def test_success_records_technical_identity_without_evaluation(self):
+    def test_success_keeps_technical_validation_distinct_from_evaluation(self):
         self.assertEqual(pipeline.run_pipeline(self.raw, self.run), self.run)
         status = self.read_status()
         report_path = self.run / "validation_report.json"
@@ -160,6 +160,15 @@ class TechnicalPipelineTests(unittest.TestCase):
         self.assertEqual(status["validation_report_path"], str(report_path))
         self.assertIs(status["approved_for_delivery"], False)
         self.assertIs(status["random_state"], None)
+        self.assertEqual(status["technical_validation_status"], "passed")
+        self.assertEqual(status["evaluation_status"], "completed")
+        self.assertEqual(status["model_quality_approval"], "NOT_ESTABLISHED")
+        evaluation_path = self.run / "evaluation_report.json"
+        self.assertEqual(status["evaluation_report_path"], str(evaluation_path))
+        evaluation = json.loads(evaluation_path.read_text())
+        self.assertEqual(evaluation["run_id"], self.run.name)
+        self.assertEqual(evaluation["evaluation_status"], "completed")
+        self.assertIs(evaluation["approved_for_delivery"], False)
         self.assertEqual(report["scope"], "technical_data_and_model_validation")
         self.assertEqual(report["validation_status"], "passed")
         self.assertEqual(report["run_id"], self.run.name)
@@ -185,10 +194,45 @@ class TechnicalPipelineTests(unittest.TestCase):
         self.assertEqual(parsed, sorted(parsed))
         self.process.assert_called_once()
         self.train.assert_called_once()
-        self.loader.assert_called_once()
+        self.assertEqual(self.loader.call_count, 2)
         self.model.fit.assert_not_called()
-        self.model.predict.assert_not_called()
+        self.model.predict.assert_called_once()
         self.model.score.assert_not_called()
+
+    def test_evaluation_starts_after_technical_report_and_before_completion(self):
+        original = pipeline.evaluate_run
+
+        def evaluate(directory, output):
+            technical = json.loads((directory / "validation_report.json").read_bytes())
+            status = self.read_status()
+            self.assertEqual(technical["validation_status"], "passed")
+            self.assertNotIn("metrics", technical)
+            self.assertEqual(status["status"], "running")
+            self.assertEqual(status["technical_validation_status"], "passed")
+            self.assertEqual(status["evaluation_status"], "running")
+            return original(directory, output)
+
+        with patch.object(pipeline, "evaluate_run", side_effect=evaluate) as perform:
+            pipeline.run_pipeline(self.raw, self.run)
+        perform.assert_called_once_with(self.run, self.run / "evaluation_report.json")
+        self.assertEqual(self.read_status()["status"], "completed")
+
+    def test_existing_evaluation_report_is_never_overwritten(self):
+        def produce(directory, destination):
+            result = self.produce_artifact(directory, destination)
+            (self.run / "evaluation_report.json").write_bytes(b"PRESERVED EVALUATION")
+            return result
+
+        self.train.side_effect = produce
+        with self.assertRaises(FileExistsError):
+            pipeline.run_pipeline(self.raw, self.run)
+        status = self.read_status()
+        self.assertEqual(status["status"], "failed")
+        self.assertEqual(status["technical_validation_status"], "passed")
+        self.assertEqual(status["evaluation_status"], "failed")
+        self.assertEqual((self.run / "evaluation_report.json").read_bytes(), b"PRESERVED EVALUATION")
+        self.assertEqual(json.loads((self.run / "validation_report.json").read_bytes())["validation_status"], "passed")
+        self.assertEqual((self.run / "model/trained_model.joblib").read_bytes(), ARTIFACT_BYTES)
 
     def test_feature_contract_matches_api_without_importing_api(self):
         source = Path(__file__).parent / "api/service.py"

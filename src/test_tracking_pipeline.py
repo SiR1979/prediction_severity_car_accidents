@@ -1,6 +1,7 @@
 """One tracking suite: isolated lifecycle doubles and an opaque local HTTP run.
 
-No real preprocessing, estimator fitting, deserialisation, or evaluation occurs.
+No real preprocessing, estimator fitting or deserialisation occurs. Descriptive
+evaluation uses controlled prediction substitutes and isolated prepared files.
 The real-server case writes only a new, clearly labelled test experiment.
 """
 
@@ -8,6 +9,7 @@ import base64
 import copy
 import json
 import os
+import re
 import tempfile
 import unittest
 import uuid
@@ -37,6 +39,7 @@ class FakeClient:
         self.ambiguous_create = False
         self.bad_download = False
         self.bad_readback = False
+        self.bad_metric_readback = False
         self.fail_failure_update = False
         self.duplicate = False
 
@@ -58,7 +61,10 @@ class FakeClient:
                 raise TimeoutError("Create response was lost.")
             return {"run": copy.deepcopy(self.current)}
         if route == "runs/log-batch":
-            self.current["data"]["params"] = payload["params"]
+            for name in ("params", "metrics"):
+                values = {item["key"]: item for item in self.current["data"][name]}
+                values.update({item["key"]: copy.deepcopy(item) for item in payload.get(name, [])})
+                self.current["data"][name] = list(values.values())
         elif route == "runs/set-tag":
             tags = {item["key"]: item["value"] for item in self.current["data"]["tags"]}
             tags[payload["key"]] = payload["value"]
@@ -73,6 +79,8 @@ class FakeClient:
         observed = copy.deepcopy(self.current)
         if self.bad_readback and observed["info"]["status"] == "FINISHED":
             observed["data"]["tags"] = []
+        if self.bad_metric_readback and observed["info"]["status"] == "FINISHED":
+            observed["data"]["metrics"] = []
         return observed
 
     def upload(self, _run, name, path, expected_hash):
@@ -128,6 +136,7 @@ class TrackingPipelineTests(unittest.TestCase):
         self.model.feature_names_in_ = np.array(pipeline.FEATURES)
         self.model.n_features_in_ = 28
         self.model.classes_ = np.array([0, 1])
+        self.model.predict = Mock(return_value=np.array([0, 1]))
         self.process = self.start_patch(pipeline, "process_data", side_effect=self.prepare)
         self.train = self.start_patch(pipeline, "train_model", side_effect=self.produce)
         self.loader = self.start_patch(pipeline.joblib, "load", return_value=self.model)
@@ -194,7 +203,8 @@ class TrackingPipelineTests(unittest.TestCase):
         self.assertEqual(provenance["configuration"]["features"], list(pipeline.FEATURES))
         self.assertIs(provenance["configuration"]["forest_random_state"], None)
         self.assertFalse(provenance["approved_for_delivery"])
-        self.assertFalse(provenance["evaluation_performed"])
+        self.assertTrue(provenance["evaluation_performed"])
+        self.assertEqual(provenance["model_quality_approval"], "NOT_ESTABLISHED")
         self.assertNotIn("pipeline/artifact_manifest.json", manifest["artifacts"])
         for name, identity in manifest["artifacts"].items():
             self.assertEqual(sha256(self.client.artifacts[name]), identity["sha256"])
@@ -211,12 +221,31 @@ class TrackingPipelineTests(unittest.TestCase):
         self.assertEqual(tags["provenance_sha256"], manifest["artifacts"]["pipeline/run_provenance.json"]["sha256"])
         self.assertEqual(tags["artifact_manifest_sha256"], sha256(self.client.artifacts["pipeline/artifact_manifest.json"]))
         self.assertEqual(status["tracking"]["artifact_manifest_sha256"], tags["artifact_manifest_sha256"])
-        self.assertFalse(self.client.current["data"]["metrics"])
+        evaluation = json.loads(self.client.artifacts["pipeline/evaluation_report.json"])
+        link = provenance["evaluation"]
+        self.assertEqual(link["metrics"], evaluation["metrics"])
+        self.assertEqual(link["training_majority_baseline"], evaluation["training_majority_baseline"])
+        self.assertEqual(link["inputs"], evaluation["inputs"])
+        self.assertEqual(link["sha256"], sha256(self.client.artifacts[link["artifact"]]))
+        self.assertEqual(manifest["evaluation_report_sha256"], link["sha256"])
+        self.assertEqual(tags["evaluation_report_sha256"], link["sha256"])
+        self.assertEqual(tags["evaluation_performed"], "true")
+        self.assertEqual(status["tracking"]["evaluation_report_sha256"], link["sha256"])
+        self.assertEqual(status["evaluation_status"], "completed")
+        for relative, observed in link["inputs"].items():
+            self.assertEqual({key: observed[key] for key in ("sha256", "size_bytes")}, manifest["artifacts"]["pipeline/" + relative])
+        metric_batches = [payload for route, payload in self.client.calls if route == "runs/log-batch" and payload.get("metrics")]
+        self.assertEqual(len(metric_batches), 1)
+        self.assertEqual(metric_batches[0]["run_id"], provenance["mlflow_run_id"])
+        recorded_metrics = {item["key"]: item["value"] for item in metric_batches[0]["metrics"]}
+        self.assertEqual(recorded_metrics, {prefix + "_" + key: value for prefix, values in (
+            ("evaluation", evaluation["metrics"]), ("training_majority", evaluation["training_majority_baseline"]["metrics"])
+        ) for key, value in values.items()})
         phases = [payload["value"] for route, payload in self.client.calls if route == "runs/set-tag" and payload["key"] == "pipeline_phase"]
-        self.assertEqual(phases, ["preprocessing", "data_validation", "training", "model_validation", "report_writing", "artifact_recording", "tracking_finish"])
+        self.assertEqual(phases, ["preprocessing", "data_validation", "training", "model_validation", "report_writing", "evaluation", "artifact_recording", "tracking_finish"])
 
     def test_artifact_changes_after_manifest_prevent_completion(self):
-        cases = {"report": "validation_report.json", "model": "model/trained_model.joblib",
+        cases = {"report": "validation_report.json", "evaluation": "evaluation_report.json", "model": "model/trained_model.joblib",
                  "prepared": "preprocessed/X_train.csv", "provenance": "tracking_evidence/run_provenance.json",
                  "manifest": "tracking_evidence/artifact_manifest.json"}
         for case, relative in cases.items():
@@ -257,7 +286,7 @@ class TrackingPipelineTests(unittest.TestCase):
                 tracker = self.make_tracker()
                 original_finish = tracker.finish
 
-                def inconsistent_report(report_path, model_path):
+                def inconsistent_report(report_path, model_path, evaluation_path):
                     report = json.loads(report_path.read_bytes())
                     if field.startswith("validated_"):
                         key = "model_sha256" if field == "validated_sha256" else "model_path"
@@ -265,7 +294,7 @@ class TrackingPipelineTests(unittest.TestCase):
                     else:
                         report[field] = "0" * 64 if field == "model_sha256" else "different-model.joblib"
                     report_path.write_bytes(json_bytes(report))
-                    original_finish(report_path, model_path)
+                    original_finish(report_path, model_path, evaluation_path)
 
                 with patch.object(tracker, "finish", side_effect=inconsistent_report):
                     with self.assertRaisesRegex(TrackingFailure, "model identity differs"):
@@ -309,15 +338,101 @@ class TrackingPipelineTests(unittest.TestCase):
 
         def readback(run_id):
             observed = original(run_id)
-            observed["data"]["metrics"] = [{"key": "external_fixture_metric", "value": 0}]
+            observed["data"]["metrics"].append({"key": "external_fixture_metric", "value": 0})
             return observed
 
         self.client.run = readback
         pipeline.run_pipeline(self.raw, self.run, tracker=self.tracker)
         self.assertEqual(self.status()["status"], "completed")
-        for route, payload in self.client.calls:
-            if route == "runs/log-batch":
-                self.assertFalse(payload.get("metrics", []))
+        self.assertEqual(len(self.client.current["data"]["metrics"]), 6)
+
+    def test_shared_contract_and_launcher_source_inventory(self):
+        import evaluate_run
+        import reference_contract
+
+        self.assertIs(pipeline.FEATURES, reference_contract.FEATURES)
+        self.assertIs(evaluate_run.FEATURES, reference_contract.FEATURES)
+        self.assertEqual(pipeline.CONTRACT_VERSION, evaluate_run.CONTRACT_VERSION)
+        launcher = (self.source_root / "scripts/run_tracked_pipeline.ps1").read_text(encoding="utf-8")
+        capture = launcher.split("$sourceHashes =", 1)[1].split("$configuration =", 1)[0]
+        self.assertEqual(tuple(re.findall(r"'(src/[^']+\.py)'", capture)), SOURCE_FILES)
+
+    def test_evaluation_failure_preserves_primary_error_and_technical_artifacts(self):
+        error = ValueError("Primary evaluation failure.")
+        original_fail = self.tracker.fail
+        with patch.object(pipeline, "evaluate_run", side_effect=error) as evaluate, patch.object(self.tracker, "fail", wraps=original_fail) as fail:
+            with self.assertRaises(ValueError) as caught:
+                pipeline.run_pipeline(self.raw, self.run, tracker=self.tracker)
+        self.assertIs(caught.exception, error)
+        evaluate.assert_called_once()
+        fail.assert_called_once_with(error)
+        record = self.assert_failure("ValueError")
+        self.assertEqual(record["error"], "Primary evaluation failure.")
+        self.assertEqual(record["technical_validation_status"], "passed")
+        self.assertEqual(record["evaluation_status"], "failed")
+        self.assertEqual(record["tracking"]["failed_phase"], "evaluation")
+        self.assertEqual(json.loads((self.run / "validation_report.json").read_bytes())["validation_status"], "passed")
+        self.assertEqual((self.run / "model/trained_model.joblib").read_bytes(), OPAQUE_MODEL)
+        self.assertFalse((self.run / "evaluation_report.json").exists())
+        self.assertFalse(self.client.artifacts)
+        self.assertFalse(any(route == "runs/update" and payload["status"] == "FINISHED" for route, payload in self.client.calls))
+
+    def test_failure_recording_error_does_not_replace_evaluation_error(self):
+        error = ValueError("Primary evaluation failure.")
+        with patch.object(pipeline, "evaluate_run", side_effect=error), patch.object(self.tracker, "fail", side_effect=OSError("Secondary failure recording error.")), self.assertLogs(level="ERROR"):
+            with self.assertRaises(ValueError) as caught:
+                pipeline.run_pipeline(self.raw, self.run, tracker=self.tracker)
+        self.assertIs(caught.exception, error)
+        record = self.status()
+        self.assertEqual(record["status"], "failed")
+        self.assertEqual(record["error"], str(error))
+        self.assertEqual(record["tracking"]["secondary_error_type"], "OSError")
+
+    def test_evaluated_input_change_before_tracking_blocks_completion(self):
+        original = pipeline.evaluate_run
+
+        def evaluate_then_change(directory, output):
+            result = original(directory, output)
+            with (directory / "preprocessed/y_train.csv").open("ab") as stream:
+                stream.write(b"0\n")
+            return result
+
+        with patch.object(pipeline, "evaluate_run", side_effect=evaluate_then_change):
+            with self.assertRaisesRegex(TrackingFailure, "Evaluated input identity differs"):
+                pipeline.run_pipeline(self.raw, self.run, tracker=self.tracker)
+        record = self.assert_failure("TrackingFailure")
+        self.assertEqual(record["technical_validation_status"], "passed")
+        self.assertEqual(record["evaluation_status"], "completed")
+        self.assertTrue((self.run / "evaluation_report.json").is_file())
+        self.assertFalse(self.client.artifacts)
+
+    def test_missing_metric_readback_prevents_workflow_success(self):
+        self.client.bad_metric_readback = True
+        with self.assertRaisesRegex(TrackingFailure, "Recorded evaluation metrics differ"):
+            pipeline.run_pipeline(self.raw, self.run, tracker=self.tracker)
+        record = self.assert_failure("TrackingFailure")
+        self.assertEqual(record["evaluation_status"], "completed")
+        self.assertEqual(self.client.current["info"]["status"], "FAILED")
+        self.assertTrue((self.run / "evaluation_report.json").is_file())
+
+    def test_metric_upload_failure_preserves_completed_evaluation_without_retry(self):
+        original = self.client.post
+        metric_calls = []
+
+        def post(route, payload):
+            if route == "runs/log-batch" and payload.get("metrics"):
+                metric_calls.append(copy.deepcopy(payload))
+                raise OSError("Evaluation metric recording failed.")
+            return original(route, payload)
+
+        self.client.post = post
+        with self.assertRaisesRegex(OSError, "Evaluation metric recording failed"):
+            pipeline.run_pipeline(self.raw, self.run, tracker=self.tracker)
+        record = self.assert_failure("OSError")
+        self.assertEqual(len(metric_calls), 1)
+        self.assertEqual(record["evaluation_status"], "completed")
+        self.assertTrue((self.run / "evaluation_report.json").is_file())
+        self.assertEqual(self.client.current["info"]["status"], "FAILED")
 
     def test_invalid_context_and_target_stop_before_remote_writes(self):
         for case in ("schema", "configuration", "target"):
@@ -536,7 +651,8 @@ class TrackingPipelineTests(unittest.TestCase):
         tags = {item["key"]: item["value"] for item in observed["data"]["tags"]}
         self.assertEqual(tags["evidence_scope"], "opaque_test_fixture")
         self.assertEqual(tags["model_sha256"], sha256(OPAQUE_MODEL))
-        self.assertFalse(observed["data"].get("metrics", []))
+        self.assertTrue({"evaluation_accuracy", "training_majority_accuracy"}.issubset(
+            {item["key"] for item in observed["data"].get("metrics", [])}))
         print("OPAQUE_HTTP_RUN_ID=" + tracker.state["mlflow_run_id"], flush=True)
 
 
