@@ -2,7 +2,8 @@
 
 The inherited target mapping and severity-based row selection are preserved.
 The estimator has no random seed; repeated fits may produce different results.
-A completed run has passed technical checks, not model evaluation or delivery approval.
+A completed workflow includes technical validation, descriptive evaluation and
+enabled tracking. Completion does not confer model-quality or delivery approval.
 """
 
 import argparse
@@ -18,17 +19,9 @@ import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 
 from data.make_dataset import RAW_FILENAMES, process_data
+from evaluate_run import evaluate_run
 from models.train_model import train_model
-
-
-CONTRACT_VERSION = "prepared-features-v1"
-# Match the existing API contract without importing its serving dependencies.
-FEATURES = (
-    "place", "catu", "sexe", "secu1", "year_acc", "victim_age", "catv",
-    "obsm", "motor", "catr", "circ", "surf", "situ", "vma", "jour", "mois",
-    "lum", "dep", "com", "agg_", "int", "atm", "col", "lat", "long", "hour",
-    "nb_victim", "nb_vehicules",
-)
+from reference_contract import CONTRACT_VERSION, FEATURES
 
 
 def utc_now():
@@ -112,6 +105,9 @@ def run_pipeline(raw_directory, run_directory, tracker=None):
         "raw_directory": str(raw_directory),
         "run_directory": str(run_directory),
         "random_state": None,
+        "technical_validation_status": "pending",
+        "evaluation_status": "pending",
+        "model_quality_approval": "NOT_ESTABLISHED",
         "approved_for_delivery": False,
     }
 
@@ -123,9 +119,10 @@ def run_pipeline(raw_directory, run_directory, tracker=None):
         )
 
     def phase(name):
+        record["phase"] = name
         if tracker is not None:
             tracker.phase(name)
-            write_status()
+        write_status()
 
     try:
         write_status()
@@ -163,9 +160,23 @@ def run_pipeline(raw_directory, run_directory, tracker=None):
         with report_path.open("x", encoding="utf-8") as stream:
             json.dump(report, stream, indent=2, allow_nan=False)
             stream.write("\n")
+        record.update(
+            technical_validation_status="passed",
+            validation_report_path=str(report_path),
+            model_path=str(model_path),
+        )
+        phase("evaluation")
+        record["evaluation_status"] = "running"
+        write_status()
+        evaluation_path = evaluate_run(run_directory, run_directory / "evaluation_report.json")
+        record.update(
+            evaluation_status="completed",
+            evaluation_report_path=str(evaluation_path),
+        )
+        write_status()
         if tracker is not None:
             phase("artifact_recording")
-            tracker.finish(report_path, model_path)
+            tracker.finish(report_path, model_path, evaluation_path)
             tracker.state["phase"] = "local_completion"
         record.update(
             status="completed",
@@ -175,6 +186,8 @@ def run_pipeline(raw_directory, run_directory, tracker=None):
         )
         write_status()
     except Exception as error:
+        if record["evaluation_status"] == "running":
+            record["evaluation_status"] = "failed"
         if tracker is not None:
             try:
                 tracker.fail(error)

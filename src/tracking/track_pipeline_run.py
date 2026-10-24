@@ -1,13 +1,15 @@
-"""Record new technical pipeline runs through the local or DagsHub artifact proxy.
+"""Record new reference workflows through the local or DagsHub artifact proxy.
 
-Tracking transfers model bytes without deserialisation. Historical import and
-evaluation contracts are not used by this module.
+Tracking transfers model bytes without deserialisation. Historical reference
+import contracts are not used by this module. New-run evaluation is
+linked to the same run and verified before workflow completion.
 """
 
 import base64
 import hashlib
 import importlib.metadata
 import json
+import math
 import platform
 import re
 from datetime import datetime, timezone
@@ -18,7 +20,8 @@ from .import_reference_run import LocalClient
 
 EXPERIMENT = "car_accident_reference_pipeline"
 SOURCE_FILES = (
-    "src/run_pipeline.py", "src/data/make_dataset.py", "src/models/train_model.py",
+    "src/run_pipeline.py", "src/evaluate_run.py", "src/reference_contract.py",
+    "src/data/make_dataset.py", "src/models/train_model.py",
     "src/tracking/track_pipeline_run.py", "src/tracking/import_reference_run.py",
 )
 CONFIG_FILES = (
@@ -193,6 +196,7 @@ class PipelineTracker:
                      "launcher_git_head": self.context["git_head"], "launcher_image_id": self.context["image_id"],
                      "invocation_context_sha256": sha256(self.context_bytes), "approved_for_delivery": "false",
                      "quality_thresholds_enforced": "false", "evaluation_performed": "false",
+                     "model_quality_approval": "NOT_ESTABLISHED",
                      "tracking_target": self.target}
         if self.server_version is not None:
             self.tags["tracking_server_version"] = self.server_version
@@ -233,10 +237,13 @@ class PipelineTracker:
         require({name: file_identity(self.raw_directory / name) for name in RAW_FILES} == self.raw_identities, "Raw input changed during execution.")
         require(file_identity(self.context_path)["sha256"] == sha256(self.context_bytes), "Invocation context changed during execution.")
 
-    def finish(self, report_path, model_path):
+    def finish(self, report_path, model_path, evaluation_path):
         self.check_inputs_unchanged()
         require(Path(model_path).resolve() == self.directory / "model/trained_model.joblib", "Model is outside the new run.")
-        files = {"pipeline/validation_report.json": Path(report_path), "pipeline/model/trained_model.joblib": Path(model_path)}
+        require(Path(report_path).resolve() == self.directory / "validation_report.json", "Technical report is outside the new run.")
+        require(Path(evaluation_path).resolve() == self.directory / "evaluation_report.json", "Evaluation report is outside the new run.")
+        files = {"pipeline/validation_report.json": Path(report_path), "pipeline/model/trained_model.joblib": Path(model_path),
+                 "pipeline/evaluation_report.json": Path(evaluation_path)}
         for name in ("X_train.csv", "X_test.csv", "y_train.csv", "y_test.csv"):
             files["pipeline/preprocessed/" + name] = self.directory / "preprocessed" / name
         # Capture one baseline; subsequent observations only check for changes.
@@ -251,6 +258,44 @@ class PipelineTracker:
         require(report["model_sha256"] == model_identity["sha256"] and report["model_path"] == str(model_path), "Technical model identity differs.")
         require(report["model_validation"]["model_sha256"] == model_identity["sha256"]
                 and report["model_validation"]["model_path"] == str(model_path), "Validated model identity differs.")
+        evaluation_bytes = Path(evaluation_path).read_bytes()
+        evaluation_identity = identities["pipeline/evaluation_report.json"]
+        require({"sha256": sha256(evaluation_bytes), "size_bytes": len(evaluation_bytes)} == evaluation_identity,
+                "Evaluation report changed while reading.")
+        evaluation = read_json(evaluation_bytes)
+        require(evaluation["schema_name"] == "reference_run_evaluation_v1"
+                and evaluation["scope"] == "descriptive_prepared_holdout_evaluation"
+                and evaluation["evaluation_status"] == "completed", "Evaluation is not complete.")
+        require(evaluation["run_id"] == self.directory.name and evaluation["run_directory"] == str(self.directory)
+                and evaluation["contract_version"] == self.configuration["contract_version"], "Evaluation belongs to another run or contract.")
+        require(evaluation["approved_for_delivery"] is False and evaluation["quality_thresholds_enforced"] is False
+                and evaluation["model_quality_approval"] == "NOT_ESTABLISHED", "Evaluation approval boundaries differ.")
+        expected_inputs = {"validation_report.json", "model/trained_model.joblib", "preprocessed/X_test.csv",
+                           "preprocessed/y_test.csv", "preprocessed/y_train.csv"}
+        require(set(evaluation["inputs"]) == expected_inputs, "Unexpected evaluated input selection.")
+        for relative, observed in evaluation["inputs"].items():
+            expected = {"path": str(self.directory / relative), **identities["pipeline/" + relative]}
+            require(observed == expected, "Evaluated input identity differs from the recorded artifact.")
+        require(evaluation["test_rows"] == report["data_validation"]["partitions"]["test"]["row_count"]
+                and evaluation["feature_count"] == len(self.configuration["features"]), "Evaluation dimensions differ.")
+        baseline = evaluation["training_majority_baseline"]
+        counts = baseline["training_class_counts"]
+        require(set(counts) == {"0", "1"} and all(type(value) is int and value >= 0 for value in counts.values())
+                and sum(counts.values()) == report["data_validation"]["partitions"]["train"]["row_count"],
+                "Training-majority counts differ.")
+        require(type(baseline["class_code"]) is int and baseline["class_code"] in (0, 1)
+                and baseline["selection_basis"] == "training_targets_only" and baseline["tie_break"] == "lowest_class_code"
+                and baseline["class_code"] == (0 if counts["0"] >= counts["1"] else 1), "Training-majority selection differs.")
+        metric_names = {"accuracy", "balanced_accuracy", "macro_f1"}
+        self.metrics = {}
+        for prefix, values in (("evaluation", evaluation["metrics"]), ("training_majority", baseline["metrics"])):
+            require(set(values) == metric_names, "Unexpected evaluation metric selection.")
+            for name, value in values.items():
+                require(type(value) in (int, float) and math.isfinite(value) and 0 <= value <= 1, "Invalid evaluation metric.")
+                self.metrics[prefix + "_" + name] = value
+        evaluation_link = {"artifact": "pipeline/evaluation_report.json", **evaluation_identity,
+                           "metrics": evaluation["metrics"], "training_majority_baseline": baseline,
+                           "inputs": evaluation["inputs"]}
         provenance = {"schema_name": "reference_pipeline_provenance_v1", "scope": "new_reference_pipeline_run",
                       "evidence_scope": self.context["evidence_scope"],
                       "run_id": self.directory.name, "run_directory": str(self.directory),
@@ -262,7 +307,8 @@ class PipelineTracker:
                       "raw_file_identities": self.raw_identities, "configuration": self.configuration,
                       "environment": self.environment, "dvc_input_reference": self.dvc,
                       "model_sha256": model_identity["sha256"], "technical_report_sha256": report_identity["sha256"],
-                      "approved_for_delivery": False, "evaluation_performed": False,
+                      "approved_for_delivery": False, "model_quality_approval": "NOT_ESTABLISHED",
+                      "evaluation_performed": True, "evaluation": evaluation_link,
                       "git_identity_scope": "Launcher-observed baseline; executed bytes are identified independently.",
                       "image_identity_scope": "Launcher-observed immutable image ID; not an in-container attestation."}
         evidence = {"run_provenance.json": json_bytes(provenance), "invocation_context.json": self.context_bytes,
@@ -277,7 +323,8 @@ class PipelineTracker:
         manifest = {"schema_name": "reference_pipeline_artifacts_v1", "run_id": self.directory.name,
                     "mlflow_run_id": self.state["mlflow_run_id"], "invocation_id": self.state["invocation_id"],
                     "created_at_utc": utc_now(), "model_sha256": model_identity["sha256"],
-                    "approved_for_delivery": False, "artifacts": dict(identities)}
+                    "approved_for_delivery": False, "model_quality_approval": "NOT_ESTABLISHED",
+                    "evaluation_report_sha256": evaluation_identity["sha256"], "artifacts": dict(identities)}
         manifest_path = self.directory / "tracking_evidence/artifact_manifest.json"
         manifest_bytes = json_bytes(manifest)
         write_exclusive(manifest_path, manifest_bytes)
@@ -285,7 +332,8 @@ class PipelineTracker:
         identities["pipeline/artifact_manifest.json"] = {"sha256": sha256(manifest_bytes), "size_bytes": len(manifest_bytes)}
         self.set_tags({"model_sha256": model_identity["sha256"], "technical_report_sha256": provenance["technical_report_sha256"],
                        "provenance_sha256": identities["pipeline/run_provenance.json"]["sha256"],
-                       "artifact_manifest_sha256": identities["pipeline/artifact_manifest.json"]["sha256"]})
+                       "artifact_manifest_sha256": identities["pipeline/artifact_manifest.json"]["sha256"],
+                       "evaluation_performed": "true", "evaluation_report_sha256": evaluation_identity["sha256"]})
         for name, path in files.items():
             identity = identities[name]
             require(file_identity(path) == identity, "Local artifact changed before recording.")
@@ -293,6 +341,14 @@ class PipelineTracker:
             require(self.client.download_hash(self.run, name, identity["size_bytes"]) == identity["sha256"], "Stored artifact SHA-256 differs.")
             require(file_identity(path) == identity, "Local artifact changed during recording.")
         self.check_inputs_unchanged()
+        evaluated_at = datetime.fromisoformat(evaluation["checked_at_utc"])
+        require(evaluated_at.utcoffset() is not None and evaluated_at.utcoffset().total_seconds() == 0,
+                "Evaluation timestamp is not UTC.")
+        self.metric_timestamp = int(evaluated_at.timestamp() * 1000)
+        self.client.post("runs/log-batch", {"run_id": self.state["mlflow_run_id"], "metrics": [
+            {"key": key, "value": value, "timestamp": self.metric_timestamp, "step": 0}
+            for key, value in self.metrics.items()
+        ]})
         self.phase("tracking_finish")
         ended_at = utc_now()
         end_time = int(datetime.fromisoformat(ended_at).timestamp() * 1000)
@@ -305,8 +361,16 @@ class PipelineTracker:
         require(all(stored_tags.get(key) == value for key, value in self.tags.items()), "Recorded metadata differs.")
         stored_params = {item["key"]: item["value"] for item in observed["data"].get("params", [])}
         require(stored_params == self.params, "Recorded configuration parameters differ.")
+        stored_metrics = {item["key"]: item for item in observed["data"].get("metrics", [])}
+        require(all(key in stored_metrics and stored_metrics[key]["value"] == value
+                    and stored_metrics[key].get("timestamp") == self.metric_timestamp
+                    and stored_metrics[key].get("step") == 0 for key, value in self.metrics.items()),
+                "Recorded evaluation metrics differ.")
+        for name, path in files.items():
+            require(file_identity(path) == identities[name], "Local artifact changed before completion.")
         self.state.update(status="recorded", remote_status="FINISHED", verified_at_utc=utc_now(),
-                          artifact_manifest_sha256=identities["pipeline/artifact_manifest.json"]["sha256"])
+                          artifact_manifest_sha256=identities["pipeline/artifact_manifest.json"]["sha256"],
+                          evaluation_report_sha256=evaluation_identity["sha256"])
 
     def fail(self, error):
         self.state["failed_phase"] = self.state["phase"]
