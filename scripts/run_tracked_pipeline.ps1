@@ -73,7 +73,7 @@ $worktree = (Git-Read @('status', '--porcelain=v1', '--untracked-files=all')).Li
 $imageId = Identity (Invoke-Native -Executable $dockerExecutable -NativeArguments @('image', 'inspect', '--format', '{{.Id}}', $RuntimeImage))
 if ($imageId -notmatch '^sha256:[0-9a-f]{64}$') { throw 'Unexpected image identity.' }
 $sourceHashes = [ordered]@{}
-foreach ($relative in @('src/run_pipeline.py', 'src/data/make_dataset.py', 'src/models/train_model.py', 'src/tracking/track_pipeline_run.py', 'src/tracking/import_reference_run.py')) {
+foreach ($relative in @('src/run_pipeline.py', 'src/evaluate_run.py', 'src/reference_contract.py', 'src/data/make_dataset.py', 'src/models/train_model.py', 'src/tracking/track_pipeline_run.py', 'src/tracking/import_reference_run.py')) {
     $sourceHashes[$relative] = Hash-Bytes (Evidence-Bytes $relative).Bytes
 }
 $configuration = [ordered]@{}
