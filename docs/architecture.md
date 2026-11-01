@@ -156,10 +156,10 @@ Added 2026-11-01. Phase 2 orchestration; see orchestration.md.
 - **Services:** `compose.pipeline.yaml` defines one finite service per stage,
   all from the runtime image, without network access and with read-only raw
   data. Each service starts only after the previous one completed successfully.
-- **Proposed quality gate:** evaluate checks the evaluation report against
+- **Quality gate:** evaluate checks the evaluation report against
   `src/acceptance_criteria.json`. A failed gate stops `dvc repro` with exit 1.
-  The criteria are a team proposal; a passed gate does not establish model
-  quality approval or delivery approval.
+  The supervisor left the criteria to the team. A passed gate records
+  `model_quality_approval=TEAM_CRITERIA_MET`; delivery approval stays separate.
 - **Boundaries:** the stages record no MLflow run; tracked runs keep using the
   pipeline-run job and launcher. Stage outputs reach DagsHub only through an
   explicit `dvc push` of the stage outputs.
@@ -168,7 +168,7 @@ Added 2026-11-01. Phase 2 orchestration; see orchestration.md.
 flowchart LR
     RAW["data/raw (DVC, read-only)"] --> PREPARE["prepare"]
     PREPARE -->|"preprocessed/, data_validation.json"| TRAIN["train"]
-    TRAIN -->|"model/, validation_report.json"| EVALUATE["evaluate + proposed gate"]
+    TRAIN -->|"model/, validation_report.json"| EVALUATE["evaluate + quality gate"]
     EVALUATE -->|"evaluation, acceptance, metrics"| LOCK["dvc.lock (Git)"]
     LOCK -.->|"explicit dvc push"| REMOTE["DagsHub DVC remote"]
 ```
@@ -364,7 +364,7 @@ This diagram authorises no operation.
 - Do not infer completed integration from historical import, reference recovery,
   a model artifact, service health or a green test result outside its scope.
 - Raw-input conversion, domain class interpretation, prediction-time feature
-  availability, supervisor agreement on the proposed thresholds, deployment/access/recovery choices and full
+  availability, deployment/access/recovery choices and full
   dependency/base-image locking remain separate decisions or limitations.
 - Update the relevant view when responsibilities, paths or boundaries change.
   Record dates/versions when changing implementation claims; preserve historical

@@ -76,7 +76,7 @@ def main():
             result = train(args.run_dir)
         else:
             report = evaluate(args.run_dir, args.criteria)
-            print(f"Proposed quality gate {report['gate_status']}.")
+            print(f"Quality gate {report['gate_status']}.")
             # A failed gate stops `dvc repro` and the dependent Compose services.
             return 0 if report["gate_status"] == "passed" else 1
     except Exception:

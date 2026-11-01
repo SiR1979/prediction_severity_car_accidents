@@ -1,4 +1,4 @@
-"""Check the proposed quality gate with isolated evaluation report fixtures."""
+"""Check the team quality gate with isolated evaluation report fixtures."""
 
 import json
 import os
@@ -39,9 +39,9 @@ def write(path, content):
     path.write_text(json.dumps(content), encoding="utf-8")
 
 
-def test_project_criteria_are_a_valid_proposal():
+def test_project_criteria_are_valid_team_criteria():
     criteria, _ = gate.load_criteria(CRITERIA_FILE)
-    assert criteria["status"] == "proposed"
+    assert criteria["status"] == "team_defined"
 
 
 def test_passing_report_records_checks_without_approval(paths):
@@ -52,7 +52,7 @@ def test_passing_report_records_checks_without_approval(paths):
         "macro_f1", "balanced_accuracy", "macro_f1_gain_over_training_majority"]
     assert all(check["passed"] for check in report["checks"])
     assert report["checks"][2]["observed"] == pytest.approx(0.34)
-    assert report["model_quality_approval"] == "NOT_ESTABLISHED"
+    assert report["model_quality_approval"] == "TEAM_CRITERIA_MET"
     assert report["approved_for_delivery"] is False
     assert json.loads(output.read_text(encoding="utf-8")) == report
     summary = json.loads(metrics.read_text(encoding="utf-8"))
@@ -72,6 +72,8 @@ def test_each_criterion_can_fail_the_gate(paths, values, failed):
     report = gate.accept_run(evaluation, CRITERIA_FILE, output, metrics)
     assert report["gate_status"] == "failed"
     assert [check["name"] for check in report["checks"] if not check["passed"]] == [failed]
+    assert report["model_quality_approval"] == "NOT_ESTABLISHED"
+    assert report["approved_for_delivery"] is False
     assert json.loads(metrics.read_text(encoding="utf-8"))["gate_passed"] is False
 
 
@@ -100,7 +102,7 @@ def test_unexpected_evaluation_reports_are_rejected_without_output(paths, change
 
 
 @pytest.mark.parametrize("change", [
-    {"status": "agreed"},
+    {"status": "proposed"},
     {"min_macro_f1": 1.5},
     {"min_balanced_accuracy": "0.6"},
     {"min_recall": 0.5},

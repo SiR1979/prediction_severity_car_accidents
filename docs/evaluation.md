@@ -88,7 +88,7 @@ triggering, versioned delivery and agreed monitoring remain separate.
 Metrics do not enforce quality thresholds, approve a model or authorise serving.
 Every report retains `quality_thresholds_enforced=false`,
 `model_quality_approval=NOT_ESTABLISHED` and `approved_for_delivery=false`.
-The stage pipeline applies proposed thresholds in a separate gate report
+The stage pipeline applies the team thresholds in a separate gate report
 (`acceptance_report.json`, orchestration.md); the evaluation report itself is
 unchanged. Inherited target mapping, severity-dependent selection and feature-availability
 limitations remain. No Level 1 completion or operational suitability is claimed.

@@ -26,8 +26,8 @@ Two entry points run the same commands:
   image. A service starts only after the previous one completed successfully.
 
 The stages record no MLflow run. Tracked runs keep using the `pipeline-run` job
-and the launcher (tracking.md). Airflow is planned for Phase 3 and can call the
-same stage commands.
+and the launcher (tracking.md). Airflow follows in Phase 3, as confirmed by the
+supervisor, and is to call the same stage commands.
 
 ## Run with DVC
 
@@ -61,9 +61,9 @@ separate directory so that Compose runs do not change files that DVC manages.
 The containers have no network, a read-only root filesystem, read-only raw data
 and no added capabilities.
 
-## Proposed quality gate
+## Quality gate
 
-Evaluate compares the evaluation metrics with `src/acceptance_criteria.json`:
+Evaluate compares the evaluation metrics with the team criteria in `src/acceptance_criteria.json`:
 
 | Criterion | Minimum | Reason |
 | --- | --- | --- |
@@ -72,17 +72,19 @@ Evaluate compares the evaluation metrics with `src/acceptance_criteria.json`:
 | Macro F1 gain over the training majority baseline | 0.20 | The model must clearly beat always predicting the majority class |
 
 A run on 2026-11-01 (macOS, Python 3.11, real 2021 data) measured macro F1
-0.741, balanced accuracy 0.732 and a gain of 0.346. The thresholds leave a
-margin for the unseeded estimator. They are a team proposal, not agreed with
-the supervisor. The project has no confirmed priority class, so there is no
+0.741, balanced accuracy 0.733 and a gain of 0.346. The thresholds leave a
+margin for the unseeded estimator. The supervisor left the criteria to the
+team (answer reported on 2026-11-01); changes need the agreement of both team
+members in a reviewed pull request. The project has no confirmed priority class, so there is no
 per-class recall criterion yet; it can be added once the target meaning is
 confirmed.
 
 `acceptance_report.json` lists each check with observed value, minimum and
 result. A failed gate makes evaluate exit with code 1: `dvc repro` and the
 Compose chain stop, and `dvc.lock` keeps the previous state. Errors exit with
-code 2. `model_quality_approval` stays `NOT_ESTABLISHED` and
-`approved_for_delivery` stays false in both cases.
+code 2. A passed gate sets `model_quality_approval` to `TEAM_CRITERIA_MET`;
+a failed gate keeps `NOT_ESTABLISHED`. `approved_for_delivery` stays false in
+both cases: delivery remains a separate step.
 
 ## Versioning on DagsHub
 

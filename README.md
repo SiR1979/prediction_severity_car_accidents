@@ -17,7 +17,7 @@ Components
 | --- | --- | --- |
 | Stage pipeline prepare → train → evaluate | `dvc.yaml`, `src/pipeline_stages.py` | [docs/orchestration.md](docs/orchestration.md) |
 | One container per stage | `compose.pipeline.yaml` | [docs/orchestration.md](docs/orchestration.md) |
-| Evaluation and proposed quality gate | `src/evaluate_run.py`, `src/accept_run.py`, `src/acceptance_criteria.json` | [docs/evaluation.md](docs/evaluation.md) |
+| Evaluation and quality gate | `src/evaluate_run.py`, `src/accept_run.py`, `src/acceptance_criteria.json` | [docs/evaluation.md](docs/evaluation.md) |
 | Data and model versioning (DVC, DagsHub remote) | `.dvc/config`, `versioning/`, `dvc.lock` | [docs/versioning.md](docs/versioning.md) |
 | Experiment tracking (MLflow, local or DagsHub) | `compose.tracking.yaml`, `src/tracking/`, `scripts/run_tracked_pipeline.ps1` | [docs/tracking.md](docs/tracking.md) |
 | Prediction API and browser app | `compose.api.yaml`, `compose.app.yaml`, `src/api/`, `src/app/` | [docs/api-contract.md](docs/api-contract.md), [docs/local-app.md](docs/local-app.md) |
@@ -39,7 +39,7 @@ Project organization
         ├── pipeline_stages.py <- prepare, train and evaluate stage entry points
         ├── run_pipeline.py    <- Single-run pipeline used for tracked runs
         ├── evaluate_run.py    <- Descriptive evaluation against a majority baseline
-        ├── accept_run.py      <- Proposed quality gate
+        ├── accept_run.py      <- Quality gate (team criteria)
         ├── tracking/          <- MLflow tracking client and historical import
         ├── versioning/        <- DVC registration tools
         ├── api/               <- FastAPI prediction service
@@ -97,8 +97,8 @@ Known limitations
 
 The inherited target mapping, severity-based row selection and the unseeded
 estimator are preserved on purpose and documented in
-[docs/architecture.md](docs/architecture.md). The quality thresholds are a team
-proposal and not yet agreed with the supervisor.
+[docs/architecture.md](docs/architecture.md). The supervisor left the quality
+thresholds to the team; they are set in `src/acceptance_criteria.json`.
 
 ------------------------
 

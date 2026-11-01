@@ -1,8 +1,7 @@
-"""Check a descriptive evaluation report against proposed quality criteria.
+"""Check a descriptive evaluation report against the team quality criteria.
 
-The criteria are a team proposal and have not been agreed with the supervisor.
-A passed gate records that the proposal is met; it does not establish model
-quality approval or delivery approval.
+The supervisor left the criteria to the team (November 2026). A passed gate
+records that the model meets them; delivery approval remains a separate step.
 """
 
 import argparse
@@ -36,8 +35,8 @@ def load_criteria(path):
     criteria, source = read_json(path)
     if not isinstance(criteria, dict) or set(criteria) != CRITERIA_KEYS:
         raise ValueError("Acceptance criteria keys differ from the expected selection.")
-    if criteria["status"] != "proposed" or not isinstance(criteria["criteria_version"], str):
-        raise ValueError("Acceptance criteria must be a versioned proposal.")
+    if criteria["status"] != "team_defined" or not isinstance(criteria["criteria_version"], str):
+        raise ValueError("Acceptance criteria must be versioned team criteria.")
     for key in CRITERIA_KEYS - {"criteria_version", "status"}:
         unit_interval(criteria[key], key)
     return criteria, source
@@ -76,14 +75,14 @@ def accept_run(evaluation_path, criteria_path, output_path, metrics_path=None):
     passed = all(result["passed"] for result in results)
     report = {
         "schema_name": "reference_run_acceptance_v1",
-        "scope": "proposed_model_quality_gate",
+        "scope": "team_model_quality_gate",
         "run_id": evaluation.get("run_id"),
         "evaluation_report": evaluation_source,
         "criteria": {"source": criteria_source, "version": criteria["criteria_version"],
                      "status": criteria["status"]},
         "checks": results,
         "gate_status": "passed" if passed else "failed",
-        "model_quality_approval": "NOT_ESTABLISHED",
+        "model_quality_approval": "TEAM_CRITERIA_MET" if passed else "NOT_ESTABLISHED",
         "approved_for_delivery": False,
         "checked_at_utc": datetime.now(timezone.utc).isoformat(),
     }
@@ -112,7 +111,7 @@ def main():
     except Exception:
         logging.exception("Acceptance check failed to run.")
         return 2
-    print(f"Proposed quality gate {report['gate_status']}: {args.output}")
+    print(f"Quality gate {report['gate_status']}: {args.output}")
     return 0 if report["gate_status"] == "passed" else 1
 
 
