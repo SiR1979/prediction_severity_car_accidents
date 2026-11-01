@@ -26,7 +26,8 @@ services:
         bind:
           create_host_path: false
       - type: bind
-        source: C:/Users/simon/MLOps_car_accident_dvc_store
+        # Machine-specific historical store; set DVC_LOCAL_STORE on the owner's machine.
+        source: ${DVC_LOCAL_STORE:?Set DVC_LOCAL_STORE to the local DVC store directory}
         target: /store
         bind:
           create_host_path: false

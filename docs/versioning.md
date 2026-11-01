@@ -316,12 +316,52 @@ Configuration references:
 - [DVC pull targets](https://doc.dvc.org/command-reference/pull)
 - [DVC HTTP authentication](https://doc.dvc.org/user-guide/data-management/remote-storage/http)
 
+## Prepared data and selected model on DagsHub
+
+Added 2026-11-01. Agreed in the team for Phase 2.
+
+The shared scope grows from the raw data to these pointers:
+
+| Pointer | Content | Pushed by |
+| --- | --- | --- |
+| `versioning/reference_preprocessed.dvc` | Four prepared reference CSVs in `data/preprocessed/` | Simon (objects are in his local store) |
+| `versioning/candidate_20261011_19d3274f_model.dvc` | Selected candidate model served by `compose.api.yaml` | Simon (objects are in his local store) |
+| `dvc.lock`, stages prepare, train, evaluate | Prepared data, model and reports of the stage pipeline (orchestration.md) | Whoever ran `dvc repro` for the committed `dvc.lock` |
+
+The two historical pointers are copied from the local `reference` store to
+DagsHub without changing them:
+
+```powershell
+$targets = 'versioning/reference_preprocessed.dvc', 'versioning/candidate_20261011_19d3274f_model.dvc'
+dvc fetch --remote reference $targets
+dvc push --remote dagshub $targets
+dvc status --cloud --remote dagshub $targets
+```
+
+The final status must report the targets as up to date. A colleague then
+restores them with `dvc pull --remote dagshub <pointer>`. Other historical
+pointers (`preserved_reference_model.dvc`, `validated_reference_run.dvc`,
+`validation_report.dvc`) stay in the local store.
+
+### Historical versioning tool path
+
+`compose.versioning.yaml` no longer contains a personal path. The historical
+tool needs the local store directory in `DVC_LOCAL_STORE`; Compose stops with an
+error when it is missing:
+
+```powershell
+$env:DVC_LOCAL_STORE = 'C:/Users/simon/MLOps_car_accident_dvc_store'
+```
+
+The completed historical procedures above are still not meant to be rerun.
+
 ## Remaining work
 
-The raw 2021 dataset now has a shared DagsHub remote. Automatic registration of
-new training outputs, shared storage for prepared data and models, colleague
-access validation, CI access, model acceptance and controlled delivery remain
-separate steps. Level 1 remains incomplete; Level 2 is tracked separately.
+The raw 2021 dataset has a shared DagsHub remote. The prepared reference data,
+the selected candidate model and the stage pipeline outputs have documented
+push targets; the transfers above are recorded only once they are run. CI
+access, supervisor-agreed acceptance and controlled delivery remain separate
+steps. Level 1 remains incomplete; Level 2 is tracked separately.
 
 ## References
 
