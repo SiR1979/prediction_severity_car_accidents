@@ -1,0 +1,116 @@
+schema: '2.0'
+stages:
+  prepare:
+    cmd: python -B src/pipeline_stages.py prepare --raw-dir data/raw --run-dir 
+      data/pipeline
+    deps:
+    - path: data/raw
+      hash: md5
+      md5: 90c3e04bb8fa1558eb70f9096b5b6010.dir
+      size: 31082914
+      nfiles: 4
+    - path: src/data/make_dataset.py
+      hash: md5
+      md5: 260702fdcdf9f500d3aeb59a0abb994e
+      size: 6099
+    - path: src/pipeline_stages.py
+      hash: md5
+      md5: 3708acf596441e216bdb68da039ec58f
+      size: 3822
+    - path: src/reference_contract.py
+      hash: md5
+      md5: 9b821b9b0689d6ff3123b7ea4d0409a3
+      size: 396
+    - path: src/run_pipeline.py
+      hash: md5
+      md5: 3af37209c0824f5c3a6e802981fe7543
+      size: 9992
+    outs:
+    - path: data/pipeline/data_validation.json
+      hash: md5
+      md5: 1fa1669387a59860c1e6ca723ed31c49
+      size: 646
+    - path: data/pipeline/preprocessed
+      hash: md5
+      md5: 34b7b7a80c1b5d66d86e05a7978b83e9.dir
+      size: 5882269
+      nfiles: 4
+  train:
+    cmd: python -B src/pipeline_stages.py train --run-dir data/pipeline
+    deps:
+    - path: data/pipeline/data_validation.json
+      hash: md5
+      md5: 1fa1669387a59860c1e6ca723ed31c49
+      size: 646
+    - path: data/pipeline/preprocessed
+      hash: md5
+      md5: 34b7b7a80c1b5d66d86e05a7978b83e9.dir
+      size: 5882269
+      nfiles: 4
+    - path: src/models/train_model.py
+      hash: md5
+      md5: 4063116871591b618839018dbe684603
+      size: 1560
+    - path: src/pipeline_stages.py
+      hash: md5
+      md5: 3708acf596441e216bdb68da039ec58f
+      size: 3822
+    - path: src/run_pipeline.py
+      hash: md5
+      md5: 3af37209c0824f5c3a6e802981fe7543
+      size: 9992
+    outs:
+    - path: data/pipeline/model/trained_model.joblib
+      hash: md5
+      md5: 792377f6d7897e2dd9364a364e429561
+      size: 107231369
+    - path: data/pipeline/validation_report.json
+      hash: md5
+      md5: 6459f71d7c01a261799767d323395029
+      size: 1684
+  evaluate:
+    cmd: python -B src/pipeline_stages.py evaluate --run-dir data/pipeline 
+      --criteria src/acceptance_criteria.json
+    deps:
+    - path: data/pipeline/model/trained_model.joblib
+      hash: md5
+      md5: 792377f6d7897e2dd9364a364e429561
+      size: 107231369
+    - path: data/pipeline/preprocessed
+      hash: md5
+      md5: 34b7b7a80c1b5d66d86e05a7978b83e9.dir
+      size: 5882269
+      nfiles: 4
+    - path: data/pipeline/validation_report.json
+      hash: md5
+      md5: 6459f71d7c01a261799767d323395029
+      size: 1684
+    - path: src/accept_run.py
+      hash: md5
+      md5: 6d473f2d8513911fe2822bc828f8eb0b
+      size: 5224
+    - path: src/acceptance_criteria.json
+      hash: md5
+      md5: 9da5e80408689a90d3558fd4055f2d7c
+      size: 180
+    - path: src/evaluate_run.py
+      hash: md5
+      md5: 87d540efe3e1cd6b4575c5012fe7dd36
+      size: 8187
+    - path: src/pipeline_stages.py
+      hash: md5
+      md5: 3708acf596441e216bdb68da039ec58f
+      size: 3822
+    outs:
+    - path: data/pipeline/acceptance_report.json
+      hash: md5
+      md5: 916c97fccd3348532e30e38dde261780
+      size: 1156
+    - path: data/pipeline/evaluation_report.json
+      hash: md5
+      md5: fa630c628d8e8b0b97e69fdffd09e823
+      size: 2771
+    - path: data/pipeline/metrics.json
+      hash: md5
+      md5: bbaf2a464521ffb59d8b55ebc53c7bdf
+      size: 287

@@ -1,0 +1,42 @@
+# Reference pipeline as three stages; run from the repository root with `dvc repro`.
+# Each stage runs `src/pipeline_stages.py`, the same command as compose.pipeline.yaml.
+stages:
+  prepare:
+    cmd: python -B src/pipeline_stages.py prepare --raw-dir data/raw --run-dir data/pipeline
+    deps:
+      - data/raw
+      - src/data/make_dataset.py
+      - src/pipeline_stages.py
+      - src/reference_contract.py
+      - src/run_pipeline.py
+    outs:
+      - data/pipeline/preprocessed
+      - data/pipeline/data_validation.json
+
+  train:
+    cmd: python -B src/pipeline_stages.py train --run-dir data/pipeline
+    deps:
+      - data/pipeline/preprocessed
+      - data/pipeline/data_validation.json
+      - src/models/train_model.py
+      - src/pipeline_stages.py
+      - src/run_pipeline.py
+    outs:
+      - data/pipeline/model/trained_model.joblib
+      - data/pipeline/validation_report.json
+
+  evaluate:
+    cmd: python -B src/pipeline_stages.py evaluate --run-dir data/pipeline --criteria src/acceptance_criteria.json
+    deps:
+      - data/pipeline/preprocessed
+      - data/pipeline/model/trained_model.joblib
+      - data/pipeline/validation_report.json
+      - src/acceptance_criteria.json
+      - src/accept_run.py
+      - src/evaluate_run.py
+      - src/pipeline_stages.py
+    outs:
+      - data/pipeline/evaluation_report.json
+      - data/pipeline/acceptance_report.json
+    metrics:
+      - data/pipeline/metrics.json

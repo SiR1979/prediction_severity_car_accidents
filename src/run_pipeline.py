@@ -84,6 +84,27 @@ def validate_model_artifact(model_path):
     }
 
 
+def write_validation_report(report_path, run_directory, data_validation, model_validation):
+    """Create one new technical report; an existing report is never replaced."""
+    report = {
+        "scope": "technical_data_and_model_validation",
+        "validation_status": "passed",
+        "contract_version": CONTRACT_VERSION,
+        "run_id": run_directory.name,
+        "run_directory": str(run_directory),
+        "model_path": model_validation["model_path"],
+        "model_sha256": model_validation["model_sha256"],
+        "data_validation": data_validation,
+        "model_validation": model_validation,
+        "checked_at_utc": utc_now(),
+        "approved_for_delivery": False,
+    }
+    with Path(report_path).open("x", encoding="utf-8") as stream:
+        json.dump(report, stream, indent=2, allow_nan=False)
+        stream.write("\n")
+    return report_path
+
+
 def run_pipeline(raw_directory, run_directory, tracker=None):
     raw_directory = Path(raw_directory).resolve(strict=True)
     run_directory = Path(run_directory).resolve()
@@ -142,24 +163,10 @@ def run_pipeline(raw_directory, run_directory, tracker=None):
         phase("model_validation")
         model_validation = validate_model_artifact(model_path)
         phase("report_writing")
-        report_path = run_directory / "validation_report.json"
-        report = {
-            "scope": "technical_data_and_model_validation",
-            "validation_status": "passed",
-            "contract_version": CONTRACT_VERSION,
-            "run_id": run_directory.name,
-            "run_directory": str(run_directory),
-            "model_path": model_validation["model_path"],
-            "model_sha256": model_validation["model_sha256"],
-            "data_validation": data_validation,
-            "model_validation": model_validation,
-            "checked_at_utc": utc_now(),
-            "approved_for_delivery": False,
-        }
         # Only this new run receives a technical report; historical reports stay unchanged.
-        with report_path.open("x", encoding="utf-8") as stream:
-            json.dump(report, stream, indent=2, allow_nan=False)
-            stream.write("\n")
+        report_path = write_validation_report(
+            run_directory / "validation_report.json", run_directory, data_validation, model_validation,
+        )
         record.update(
             technical_validation_status="passed",
             validation_report_path=str(report_path),
