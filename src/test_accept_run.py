@@ -85,6 +85,23 @@ def test_threshold_equal_to_observed_value_passes(paths, tmp_path):
     assert gate.accept_run(evaluation, tmp_path / "criteria.json", output)["gate_status"] == "passed"
 
 
+@pytest.mark.parametrize("macro_f1, baseline_macro_f1, gate_status", [
+    (0.68, 0.49, "failed"),           # gain 0.19: below the minimum
+    (0.69, 0.49, "passed"),           # gain 0.19999999999999996: the minimum after rounding
+    (0.70, 0.49, "passed"),           # gain 0.21: above the minimum
+    (0.6899999, 0.49, "failed"),      # gain 0.1999999: a real shortfall is not tolerated
+])
+def test_gain_boundary_tolerates_only_floating_point_rounding(paths, macro_f1, baseline_macro_f1, gate_status):
+    evaluation, output, _ = paths
+    write(evaluation, evaluation_report(macro_f1=macro_f1, baseline_macro_f1=baseline_macro_f1))
+    report = gate.accept_run(evaluation, CRITERIA_FILE, output)
+    gain = report["checks"][2]
+    assert gain["name"] == "macro_f1_gain_over_training_majority"
+    assert gain["minimum"] == 0.2
+    assert report["gate_status"] == gate_status
+    assert report["comparison_tolerance"] == gate.COMPARISON_TOLERANCE == 1e-9
+
+
 @pytest.mark.parametrize("change", [
     {"schema_name": "other"},
     {"evaluation_status": "failed"},

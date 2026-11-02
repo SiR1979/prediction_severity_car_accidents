@@ -80,7 +80,9 @@ per-class recall criterion yet; it can be added once the target meaning is
 confirmed.
 
 `acceptance_report.json` lists each check with observed value, minimum and
-result. A failed gate makes evaluate exit with code 1: `dvc repro` and the
+result. Each comparison allows a tolerance of 1e-9 so that floating-point rounding
+does not reject a value exactly at a minimum (for example a gain of
+0.69 - 0.49 = 0.19999999999999996). A real shortfall such as 0.1999999 still fails. A failed gate makes evaluate exit with code 1: `dvc repro` and the
 Compose chain stop, and `dvc.lock` keeps the previous state. Errors exit with
 code 2. A passed gate sets `model_quality_approval` to `TEAM_CRITERIA_MET`;
 a failed gate keeps `NOT_ESTABLISHED`. `approved_for_delivery` stays false in

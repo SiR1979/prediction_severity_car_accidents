@@ -18,6 +18,9 @@ CRITERIA_KEYS = {
     "criteria_version", "status", "min_macro_f1", "min_balanced_accuracy",
     "min_macro_f1_gain_over_training_majority",
 }
+# Absorbs binary floating-point rounding only (0.69 - 0.49 == 0.19999999999999996);
+# far below any meaningful metric difference on a held-out set.
+COMPARISON_TOLERANCE = 1e-9
 
 
 def read_json(path):
@@ -69,7 +72,8 @@ def accept_run(evaluation_path, criteria_path, output_path, metrics_path=None):
          criteria["min_macro_f1_gain_over_training_majority"]),
     ]
     results = [
-        {"name": name, "observed": observed, "minimum": minimum, "passed": observed >= minimum}
+        {"name": name, "observed": observed, "minimum": minimum,
+         "passed": observed >= minimum - COMPARISON_TOLERANCE}
         for name, observed, minimum in checks
     ]
     passed = all(result["passed"] for result in results)
@@ -81,6 +85,7 @@ def accept_run(evaluation_path, criteria_path, output_path, metrics_path=None):
         "criteria": {"source": criteria_source, "version": criteria["criteria_version"],
                      "status": criteria["status"]},
         "checks": results,
+        "comparison_tolerance": COMPARISON_TOLERANCE,
         "gate_status": "passed" if passed else "failed",
         "model_quality_approval": "TEAM_CRITERIA_MET" if passed else "NOT_ESTABLISHED",
         "approved_for_delivery": False,
