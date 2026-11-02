@@ -88,6 +88,7 @@ def test_threshold_equal_to_observed_value_passes(paths, tmp_path):
 @pytest.mark.parametrize("macro_f1, baseline_macro_f1, gate_status", [
     (0.68, 0.49, "failed"),           # gain 0.19: below the minimum
     (0.69, 0.49, "passed"),           # gain 0.19999999999999996: the minimum after rounding
+    (0.6900001, 0.49, "passed"),      # gain 0.2000001: just above the minimum
     (0.70, 0.49, "passed"),           # gain 0.21: above the minimum
     (0.6899999, 0.49, "failed"),      # gain 0.1999999: a real shortfall is not tolerated
 ])
