@@ -103,7 +103,8 @@ Added 2026-10-22. These parts were configured after the 2026-10-11 source.
 - **DVC remote:** `.dvc/config` sets `dagshub`
   (`https://dagshub.com/SiR1979/prediction_severity_car_accidents.dvc`) as the
   default remote. It holds only the four raw 2021 CSVs (`versioning/raw_2021.dvc`).
-  Prepared data, models and run artifacts are not on the shared remote.
+  Prepared data and models get documented push targets (versioning.md);
+  until those pushes are recorded, the shared remote holds only the raw data.
   Each person authenticates with their own DagsHub token in the Git-ignored
   `.dvc/config.local`; see versioning.md.
 - **MLflow tracking target:** new pipeline runs can be tracked either on the
