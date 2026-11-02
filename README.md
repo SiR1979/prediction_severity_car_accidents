@@ -22,6 +22,7 @@ Components
 | Experiment tracking (MLflow, local or DagsHub) | `compose.tracking.yaml`, `src/tracking/`, `scripts/run_tracked_pipeline.ps1` | [docs/tracking.md](docs/tracking.md) |
 | Prediction API and browser app | `compose.api.yaml`, `compose.app.yaml`, `src/api/`, `src/app/` | [docs/api-contract.md](docs/api-contract.md), [docs/local-app.md](docs/local-app.md) |
 | Architecture overview | | [docs/architecture.md](docs/architecture.md) |
+| Team rules and onboarding | | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 Project organization
 ------------
