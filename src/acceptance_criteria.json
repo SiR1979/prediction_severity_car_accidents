@@ -1,0 +1,7 @@
+{
+  "criteria_version": "team-2026-11-01",
+  "status": "team_defined",
+  "min_macro_f1": 0.65,
+  "min_balanced_accuracy": 0.65,
+  "min_macro_f1_gain_over_training_majority": 0.2
+}

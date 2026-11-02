@@ -1,0 +1,54 @@
+# One finite service per pipeline stage, all from the runtime image (Dockerfile).
+# `docker compose -f compose.pipeline.yaml up` runs prepare, train and evaluate in order.
+# Stages never overwrite outputs: start from an empty run directory, or use `dvc repro`.
+name: car-accident-pipeline
+
+x-stage: &stage
+  image: car-accident-runtime:local
+  build:
+    context: .
+    dockerfile: Dockerfile
+  working_dir: /app
+  volumes:
+    - type: bind
+      source: ${PIPELINE_RUN_PATH:-./data/pipeline}
+      target: /app/data/pipeline
+      bind:
+        create_host_path: false
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  network_mode: none
+
+services:
+  prepare:
+    <<: *stage
+    command: ["python", "-B", "src/pipeline_stages.py", "prepare", "--raw-dir", "data/raw", "--run-dir", "data/pipeline"]
+    volumes:
+      - type: bind
+        source: ./data/raw
+        target: /app/data/raw
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${PIPELINE_RUN_PATH:-./data/pipeline}
+        target: /app/data/pipeline
+        bind:
+          create_host_path: false
+
+  train:
+    <<: *stage
+    command: ["python", "-B", "src/pipeline_stages.py", "train", "--run-dir", "data/pipeline"]
+    depends_on:
+      prepare:
+        condition: service_completed_successfully
+
+  evaluate:
+    <<: *stage
+    command: ["python", "-B", "src/pipeline_stages.py", "evaluate", "--run-dir", "data/pipeline", "--criteria", "src/acceptance_criteria.json"]
+    depends_on:
+      train:
+        condition: service_completed_successfully
