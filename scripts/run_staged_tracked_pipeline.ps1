@@ -6,7 +6,7 @@ Images and tracking services must already be prepared. No automatic retry.
 #>
 [CmdletBinding()]
 param(
-    [string]$Repository = 'C:\Users\simon\MLOps_car_accident',
+    [string]$Repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')),
     [string]$RuntimeImage = 'car-accident-runtime:local',
     [ValidateSet('local', 'dagshub')][string]$TrackingTarget = 'local'
 )
@@ -65,7 +65,7 @@ function Write-NewJson([string]$Path, $Value) {
 Assert-PlainPath $repoPath
 if ([IO.Path]::GetFullPath((Read-Git @('rev-parse','--show-toplevel'))) -ine $repoPath) { throw 'Repository root differs.' }
 $branch = Read-Git @('branch','--show-current')
-if ($branch -notmatch '^work/[A-Za-z0-9._/-]+$') { throw 'An unpublished work branch is required.' }
+if ($branch -cne 'master' -and $branch -notmatch '^work/[A-Za-z0-9._/-]+$') { throw 'The launcher requires master or a work/ branch.' }
 $head = Read-Git @('rev-parse','HEAD')
 if ((Read-Git @('diff','--cached','--name-only','--no-ext-diff','--no-textconv','--'))) { throw 'Existing staged changes were preserved.' }
 $imageResult = Invoke-Native $dockerPath @('image','inspect','--format','{{.Id}}',$RuntimeImage)

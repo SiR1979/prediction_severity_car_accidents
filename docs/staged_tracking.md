@@ -1,8 +1,7 @@
 # Tracked reference stages
 
-Status: implementation candidate. Windows/Docker and real tracking execution are
-not established by the isolated preparation tests. Level 1 remains incomplete;
-Level 2 and model delivery require separate evidence.
+The reference pipeline and its local MLflow tracking were verified in a
+Windows/Docker run on 4 November 2026. See the validation record below.
 
 `scripts/run_staged_tracked_pipeline.ps1` executes the existing
 `src/pipeline_stages.py` commands in order: prepare, train, evaluate. Each stage
@@ -53,12 +52,17 @@ An authorized runtime phase must provide its own guarded build and launch block
 for the confirmed root and branch. The new launcher's `TrackingTarget` parameter
 selects `local` or `dagshub`; both options execute real reference training.
 
-The launcher accepts a `work/` branch so that execution can use an unpublished
-implementation branch. It rejects staged changes. Sharing commits, publishing
-branches, DVC transfer, registration, serving-model selection and deployment are
-separate actions. This implementation does not upload historical DVC objects,
-configure triggers or establish monitoring, release acceptance or police
-suitability.
+The launcher accepts `master` and `work/` branches and rejects staged changes.
+By default it derives the repository root from the script directory. Use
+`-Repository` to specify a repository path explicitly.
+
+The validation below covers the staged launcher and the local MLflow service.
+DVC/DagsHub version linkage, scheduled execution, monitoring and versioned model
+delivery require separate evidence. DVC transfer, model registration,
+serving-model selection and deployment require separate authorization.
+
+The workflow is an educational demo. Operational police use would require
+separate validation and approval.
 
 ## Isolated verification
 
@@ -66,5 +70,22 @@ suitability.
 and fake transport. It covers gate pass/rejection, incomplete stage execution,
 unknown launch exits, source/criteria changes, absent gate evidence, artifact
 round-trip failure and ambiguous creation. It does not train or load models or
-write to an actual tracking service. Windows execution and a real artifact
-round trip remain to be verified for this candidate.
+write to an actual tracking service.
+
+## Local Windows/Docker validation
+
+On 4 November 2026, the launcher version published in commit
+`08ef364a09fec57f1da906201a8a2fe18f03b7c6` completed `prepare`, `train`, and
+`evaluate` with exit code 0 for each stage. Local MLflow run
+`567ae80d9bee457d9a002f0ffe48ec95` in `car_accident_staged_pipeline` reported
+`FINISHED`. The recorder downloaded every uploaded artifact and verified its
+SHA-256 hash.
+
+| Quality criterion | Observed | Minimum |
+| --- | ---: | ---: |
+| Macro-F1 | 0.744689 | 0.65 |
+| Balanced accuracy | 0.736062 | 0.65 |
+| Macro-F1 gain over the majority baseline | 0.349175 | 0.20 |
+
+The run met all three team quality criteria. The recorded delivery flag was
+`approved_for_delivery=false`.
