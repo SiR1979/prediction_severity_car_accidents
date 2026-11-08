@@ -60,6 +60,23 @@ def validate_prepared_data(directory):
     return {"checked_at_utc": utc_now(), "partitions": partitions}
 
 
+def json_safe_parameters(value):
+    """Preserve JSON values and explicitly describe unsupported parameter types."""
+    if value is None or isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        if np.isfinite(value):
+            return value
+        return {"status": "non_finite", "value": str(value)}
+    if isinstance(value, np.generic):
+        return json_safe_parameters(value.item())
+    if isinstance(value, (list, tuple)):
+        return [json_safe_parameters(item) for item in value]
+    if isinstance(value, dict) and all(isinstance(key, str) for key in value):
+        return {key: json_safe_parameters(item) for key, item in value.items()}
+    return {"status": "unsupported_type", "type": type(value).__module__ + "." + type(value).__qualname__}
+
+
 def validate_model_artifact(model_path):
     """Check the newly produced model contract; never call inference or scoring."""
     with Path(model_path).open("rb") as stream:
@@ -76,6 +93,12 @@ def validate_model_artifact(model_path):
         "checked_at_utc": utc_now(),
         "model_path": str(model_path),
         "model_sha256": digest,
+        "estimator_configuration": {
+            "method": "get_params(deep=False)",
+            "estimator_type": type(model).__module__ + "." + type(model).__qualname__,
+            "parameters": json_safe_parameters(model.get_params(deep=False)),
+            "scope": "configuration_only_not_fitted_state",
+        },
         "checks": {
             "estimator_type": "passed",
             "feature_contract": "passed",
