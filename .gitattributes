@@ -1,0 +1,15 @@
+# Preserve LF bytes for pipeline sources and configuration snapshots.
+/src/pipeline_stages.py text eol=lf
+/src/run_pipeline.py text eol=lf
+/src/accept_run.py text eol=lf
+/src/evaluate_run.py text eol=lf
+/src/reference_contract.py text eol=lf
+/src/data/make_dataset.py text eol=lf
+/src/models/train_model.py text eol=lf
+/src/tracking/import_reference_run.py text eol=lf
+/src/tracking/track_pipeline_run.py text eol=lf
+/src/tracking/track_staged_run.py text eol=lf
+/Dockerfile text eol=lf
+/requirements-runtime.txt text eol=lf
+/src/acceptance_criteria.json text eol=lf
+/scripts/run_staged_tracked_pipeline.ps1 text eol=lf
