@@ -89,3 +89,75 @@ SHA-256 hash.
 
 The run met all three team quality criteria. The recorded delivery flag was
 `approved_for_delivery=false`.
+
+## Explicit private local post-registration (7 November 2026)
+
+`src/versioning/register_pipeline_run.py` can bind one completed staged run to a
+new local DVC workspace outside the repository. This is a separate explicit
+operation after recording, with no automatic launcher integration. The four
+prepared CSV outputs and opaque model bytes are copied and cached locally.
+It does not deserialize models, train, contact MLflow, configure a remote,
+transfer data, change serving selection or grant delivery approval.
+
+The caller must select the repository, raw directory, run directory, original
+provenance and stage receipt, a nonexistent workspace, and the expected run,
+invocation and MLflow IDs explicitly. Optional original `.dvc` pointers may be
+supplied for representation evidence. The workspace's parent must already exist;
+the workspace must be outside every protected input. Existing workspaces are
+preserved, including failed attempts; there is no automatic resume or retry.
+DVC 3.67.1 must already be installed in the selected Python environment. No
+installation or image build is performed by the tool.
+
+Before any workspace write, the registrar checks the recorded receipt digest,
+invocation/run/MLflow association, all three successful ordered stage receipts,
+original image and source associations, configuration snapshot digests, actual
+raw/prepared/model/report bytes, and evaluation/gate/report associations. These
+are checks against retained evidence. Recorded `FINISHED` and passed-gate values
+are not a fresh confirmation of any remote service or independent reproduction
+of model quality. The original container paths remain original evidence; the
+explicit local directories select the current bytes being checked.
+
+A successful workspace contains five run-specific `.dvc` pointers alongside
+`artifacts/<run_id>/...`, its own `.dvc/cache`, isolated configuration/site-cache
+directories, exact receipt/provenance copies, command records and
+`link_manifest.json`. The manifest binds actual SHA-256/size, local DVC MD5/cache
+objects, original training Git/image/source/configuration evidence and run IDs.
+Later registrar source identity and registration timestamps are recorded
+separately. Current code or a newer image never replaces original training
+origin. Failure diagnostics remain in the claimed workspace without a success
+manifest. Cache objects are checked as actual bytes before success is recorded.
+
+Each supplied original pointer retains its raw SHA-256 and a separately labelled
+comparison hash using only byte replacement of CRLF with LF. Original pointers
+are never rewritten. Text equivalence establishes no raw/prepared dataset
+association; artifact identity comes from actual bytes and the selected run's
+recorded SHA-256/size. Historical repository DVC configuration and cache remain
+untouched. Global/system DVC configuration, authentication overrides and shared
+site caches are not inherited; analytics and experiment sharing are disabled.
+
+Newly produced technical validation reports now include the estimator's
+`get_params(deep=False)` configuration under
+`model_validation.estimator_configuration`. JSON values, including `None`, are
+preserved; unsupported parameter types and non-finite values receive explicit
+descriptions. This is configuration evidence, not a fitted-state snapshot.
+The reference forest remains unseeded (`random_state=None`, `n_jobs=-1`) and
+preprocessing/training/prediction semantics are unchanged. Historical reports
+remain immutable. If an original report lacks parameter evidence, the link
+manifest records `missing_in_original_validation_report`; the registrar never
+loads a model or reconstructs old parameters from current defaults.
+
+The offline fixture suite is `src/versioning/test_register_pipeline_run.py`.
+Set `RUN_VERSION_TEST_ROOT` to a fresh private directory outside the checkout,
+then invoke it through the selected Python interpreter with `src` on its module
+path. It uses opaque artifacts, model doubles and one real isolated local DVC
+registration. Fixtures, command logs and the generated manifest/pointers are
+retained under that directory. No `fit`, `predict` or `score` is permitted.
+The application phase performs one targeted suite invocation without retry.
+
+Local registration proves no DagsHub availability or transfer. Additional MLflow
+parameter fields, structured split/test-size logging, automatic registration,
+Airflow, configured triggers, monitoring and versioned controlled delivery
+remain separate work. Full Level 1 acceptance is not established; Level 2 is a
+separate extension. `approved_for_delivery=false` remains in effect. The dated
+Windows/Docker validation above is historical evidence, not validation of this
+new registrar or a newer runtime image.
