@@ -418,8 +418,27 @@ is missing, and prints `TRACKING_TARGET=` but never the credential values.
   `PIPELINE_TRACKING_TEST_URI` set to the DagsHub URI. Its 20 artifacts were
   checked for the token afterwards (none found); the test experiment was then
   deleted. Processing and training were test doubles, as in the local run.
-- The PowerShell launcher change and a Docker-based DagsHub run were not executed;
-  they still need a check on Windows.
+- The Windows launcher and Docker-based DagsHub run were pending at this
+  checkpoint. The subsequent Windows run is recorded below.
+
+### Tracked Windows pipeline run (2026-11-12)
+
+The Windows launcher `scripts/run_tracked_pipeline.ps1 -TrackingTarget dagshub`
+completed a staged pipeline run on the private DagsHub MLflow server.
+
+| Field | Recorded value |
+| --- | --- |
+| Date | 2026-11-12 |
+| MLflow experiment | `car_accident_staged_pipeline` |
+| MLflow run ID | `9cf8a945e70e42989c21438793d8cf9a` |
+| Git commit | `3c2c0538cc2dafebdd2beb7c54d3d5a91e323e5e` |
+| Stage exit codes | `prepare`: 0, `train`: 0, `evaluate`: 0 |
+| Remote run status | `FINISHED` |
+| Quality gate | `passed` |
+| `approved_for_delivery` | `false` |
+
+Roy independently confirmed that the run, its metrics and its artifacts were
+visible on DagsHub (see #24).
 
 ## References
 
