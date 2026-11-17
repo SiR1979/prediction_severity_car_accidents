@@ -346,9 +346,17 @@ October model. All five files matched their original SHA-256 hashes.
 On 2026-11-12, Roy independently pulled both pointers and confirmed matching
 MD5 and SHA-256 values against the manifests (see #23).
 
-The output of `dvc status --cloud --remote dagshub` for these two pointers
-is still pending as closure evidence for #23. Recovery uses
-`dvc pull --remote dagshub <pointer>`. Other historical pointers
+On 2026-11-16, Roy verified both pointers with DVC 3.67.1 after running
+`dvc fetch`. He checked them with:
+
+    dvc status --cloud --remote dagshub versioning/reference_preprocessed.dvc versioning/candidate_20261011_19d3274f_model.dvc
+
+DVC reported `Cache and remote 'dagshub' are in sync.` Before the fetch, four
+files appeared as `deleted` because they were present on DagsHub and absent
+from the local DVC cache. A fresh clone can show this status until `dvc fetch`
+or `dvc pull` populates the cache.
+
+Recovery uses `dvc pull --remote dagshub <pointer>`. Other historical pointers
 (`preserved_reference_model.dvc`, `validated_reference_run.dvc`,
 `validation_report.dvc`) stay in the local store.
 
