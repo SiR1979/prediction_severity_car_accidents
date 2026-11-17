@@ -320,16 +320,16 @@ Configuration references:
 
 Added 2026-11-01. Agreed in the team for Phase 2.
 
-The shared scope grows from the raw data to these pointers:
+The Phase 2 scope extends beyond the raw data as follows:
 
 | Pointer | Content | Pushed by |
 | --- | --- | --- |
-| `versioning/reference_preprocessed.dvc` | Four prepared reference CSVs in `data/preprocessed/` | Simon (objects are in his local store) |
-| `versioning/candidate_20261011_19d3274f_model.dvc` | Selected candidate model served by `compose.api.yaml` | Simon (objects are in his local store) |
+| `versioning/reference_preprocessed.dvc` | Four prepared reference CSVs in `data/preprocessed/` | Simon |
+| `versioning/candidate_20261011_19d3274f_model.dvc` | Selected candidate model served by `compose.api.yaml` | Simon |
 | `dvc.lock`, stages prepare, train, evaluate | Prepared data, model and reports of the stage pipeline (orchestration.md) | Whoever ran `dvc repro` for the committed `dvc.lock` |
 
-The two historical pointers are copied from the local `reference` store to
-DagsHub without changing them:
+The transfer procedure for the two historical pointers uses the local
+`reference` store as its source and leaves the pointers unchanged:
 
 ```powershell
 $targets = 'versioning/reference_preprocessed.dvc', 'versioning/candidate_20261011_19d3274f_model.dvc'
@@ -338,9 +338,26 @@ dvc push --remote dagshub $targets
 dvc status --cloud --remote dagshub $targets
 ```
 
-The final status must report the targets as up to date. A colleague then
-restores them with `dvc pull --remote dagshub <pointer>`. Other historical
-pointers (`preserved_reference_model.dvc`, `validated_reference_run.dvc`,
+### Verified transfer and recovery (2026-11-12)
+
+Both pointers' contents were transferred to the private DagsHub DVC remote.
+An isolated pull restored the four prepared reference CSVs and the selected
+October model. All five files matched their original SHA-256 hashes.
+On 2026-11-12, Roy independently pulled both pointers and confirmed matching
+MD5 and SHA-256 values against the manifests (see #23).
+
+On 2026-11-16, Roy verified both pointers with DVC 3.67.1 after running
+`dvc fetch`. He checked them with:
+
+    dvc status --cloud --remote dagshub versioning/reference_preprocessed.dvc versioning/candidate_20261011_19d3274f_model.dvc
+
+DVC reported `Cache and remote 'dagshub' are in sync.` Before the fetch, four
+files appeared as `deleted` because they were present on DagsHub and absent
+from the local DVC cache. A fresh clone can show this status until `dvc fetch`
+or `dvc pull` populates the cache.
+
+Recovery uses `dvc pull --remote dagshub <pointer>`. Other historical pointers
+(`preserved_reference_model.dvc`, `validated_reference_run.dvc`,
 `validation_report.dvc`) stay in the local store.
 
 ### Historical versioning tool path
@@ -357,11 +374,12 @@ The completed historical procedures above are still not meant to be rerun.
 
 ## Remaining work
 
-The raw 2021 dataset has a shared DagsHub remote. The prepared reference data,
-the selected candidate model and the stage pipeline outputs have documented
-push targets; the transfers above are recorded only once they are run. CI
-access, supervisor-agreed acceptance and controlled delivery remain separate
-steps. Level 1 remains incomplete; Level 2 is tracked separately.
+The shared DagsHub remote holds the raw 2021 dataset, the four prepared
+reference CSVs and the selected candidate model. The stage pipeline outputs
+from `dvc.lock` have a documented push target. The verified transfer above
+covers the two named pointers. CI access, supervisor-agreed acceptance and
+controlled delivery remain separate steps. Level 1 remains incomplete.
+Level 2 is tracked separately.
 
 ## References
 
