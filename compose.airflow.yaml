@@ -1,0 +1,116 @@
+# Local Airflow for the reference stage pipeline (docs/orchestration.md).
+# LocalExecutor: the scheduler runs the tasks, so it mounts the raw data and the run directory.
+# UI and REST API on http://127.0.0.1:8081 (port 8080 belongs to the browser app).
+name: car-accident-airflow
+
+x-airflow: &airflow
+  image: car-accident-airflow:local
+  build:
+    context: .
+    dockerfile: airflow/Dockerfile
+    args:
+      SOURCE_COMMIT: ${SOURCE_COMMIT:-unknown}
+  environment: &airflow-environment
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-apiserver:8080/execution/
+    # Local use only; set your own value in .env for anything shared.
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET:-local-airflow-jwt-secret}
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+  user: "${AIRFLOW_UID:-50000}:0"
+  volumes:
+    - airflow-logs:/opt/airflow/logs
+    - type: bind
+      source: ./data/raw
+      target: /opt/airflow/project/data/raw
+      read_only: true
+      bind:
+        create_host_path: false
+    - type: bind
+      source: ./data/airflow_runs
+      target: /opt/airflow/project/data/airflow_runs
+      bind:
+        create_host_path: false
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  depends_on: &airflow-depends-on
+    postgres:
+      condition: service_healthy
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  airflow-init:
+    <<: *airflow
+    # Creates the UI user on the first start; later starts keep the existing user.
+    command: ["bash", "-c", "airflow db migrate && (airflow users list | grep -qw \"$${AIRFLOW_ADMIN_USER}\" || airflow users create --role Admin --username \"$${AIRFLOW_ADMIN_USER}\" --password \"$${AIRFLOW_ADMIN_PASSWORD}\" --firstname Local --lastname Admin --email admin@localhost.invalid)"]
+    environment:
+      <<: *airflow-environment
+      AIRFLOW_ADMIN_USER: ${AIRFLOW_ADMIN_USER:-airflow}
+      AIRFLOW_ADMIN_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-airflow}
+
+  airflow-apiserver:
+    <<: *airflow
+    command: api-server
+    ports:
+      - "127.0.0.1:8081:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    depends_on:
+      <<: *airflow-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow
+    command: scheduler
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    depends_on:
+      <<: *airflow-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-dag-processor:
+    <<: *airflow
+    command: dag-processor
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    depends_on:
+      <<: *airflow-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+volumes:
+  airflow-postgres:
+  airflow-logs:
