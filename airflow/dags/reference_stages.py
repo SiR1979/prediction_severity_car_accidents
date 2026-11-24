@@ -15,7 +15,7 @@ RUNS_DIRECTORY = "data/airflow_runs"
 
 QUALITY_GATES = {
     "team": "src/acceptance_criteria.json",
-    # Minima no model can reach; shows how a failed gate looks in Airflow.
+    # Minima of 1.0; with the reference data the F1 gain is at most ~0.604, so the gate fails.
     "failure_demo": "airflow/gate_failure_demo_criteria.json",
 }
 

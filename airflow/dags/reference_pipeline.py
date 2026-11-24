@@ -43,7 +43,12 @@ STAGE_ENVIRONMENT = {"PANDAS_COPY_ON_WRITE": "0", "PYTHONDONTWRITEBYTECODE": "1"
             "team",
             type="string",
             enum=sorted(QUALITY_GATES),
-            description="team: src/acceptance_criteria.json. failure_demo: minima no model can reach.",
+            description=(
+                "team: src/acceptance_criteria.json. failure_demo: all minima 1.0, only to show "
+                "a failed gate. With the reference data the training majority baseline has a "
+                "macro F1 of about 0.396, so the macro F1 gain can be at most about 0.604; "
+                "the gain check (minimum 1.0) fails for every model, and so does the gate."
+            ),
         ),
     },
     tags=["phase-3", "pipeline"],

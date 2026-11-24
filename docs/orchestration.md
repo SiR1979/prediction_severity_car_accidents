@@ -111,9 +111,21 @@ delete the Airflow database and logs. Run directories stay in
 
 The parameter `quality_gate` selects the criteria: `team` (default,
 `src/acceptance_criteria.json`) or `failure_demo`
-(`airflow/gate_failure_demo_criteria.json`, minima of 1.0 that no model can
-reach). Other values are rejected when the run is triggered. The demo only
-makes the gate stricter; it never approves a model.
+(`airflow/gate_failure_demo_criteria.json`, all minima 1.0). Other values are
+rejected when the run is triggered. The demo only makes the gate stricter; it
+never approves a model.
+
+With the reference data the gate fails in every `failure_demo` run, whatever
+the model: the training majority baseline has a macro F1 of about 0.396, so the
+macro F1 gain over that baseline can be at most about 1 − 0.396 = 0.604, below
+the demo minimum of 1.0. In the run shown in PR #38
+(`manual__2026-11-18T14:33:54.044970+00:00`) all three checks failed:
+
+| Check | Observed | Demo minimum |
+| --- | --- | --- |
+| macro F1 | 0.7429 | 1.0 |
+| balanced accuracy | 0.7341 | 1.0 |
+| macro F1 gain over training majority (baseline 0.3955) | 0.3474 | 1.0 |
 
 ```bash
 docker compose -f compose.airflow.yaml exec airflow-scheduler airflow dags trigger reference_pipeline --conf '{"quality_gate": "failure_demo"}'
@@ -124,7 +136,7 @@ A failed gate shows up in three places:
 - DAG grid: the task `evaluate` is red (failed) and the run is marked failed;
   `create_run_directory`, `prepare` and `train` stay green.
 - Log of `evaluate`: one line per check, for example
-  `Gate check macro_f1: observed 0.7444, minimum 1.0000, failed.`, then
+  `Gate check macro_f1: observed 0.7429, minimum 1.0000, failed.`, then
   `Quality gate failed.` and `Command exited with return code 1`.
 - Run directory: `acceptance_report.json` with `gate_status: failed` and
   `model_quality_approval: NOT_ESTABLISHED`.
