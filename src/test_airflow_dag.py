@@ -1,4 +1,4 @@
-"""Check the Airflow DAG against dvc.yaml and compose.airflow.yaml.
+"""Check the Airflow DAG against dvc.yaml and the Airflow Compose files.
 
 The command and Compose checks need no Airflow. The DAG checks import Airflow
 and run in the Airflow image (CI job "Airflow DAG"); elsewhere they are skipped.
@@ -55,6 +55,28 @@ def test_run_ids_map_to_one_directory_level(run_id, name):
         assert stages.run_directory_name(run_id) == name
 
 
+def test_track_command_uses_the_shared_recorder_for_airflow():
+    arguments = stages.track_arguments("RUN", "CRITERIA", "URI")
+    assert arguments[:3] == ["-B", "-m", "src.tracking.track_stage_run"]
+    options = dict(zip(arguments[3::2], arguments[4::2]))
+    assert options == {"--run-dir": "RUN", "--raw-dir": "data/raw", "--criteria": "CRITERIA",
+                       "--orchestrator": "airflow", "--orchestrator-run-id": '"$AIRFLOW_RUN_ID"',
+                       "--source-commit": '"$SOURCE_COMMIT"', "--tracking-uri": "URI"}
+    assert stages.TRACKING_TARGETS["local"] == "http://mlflow:5000"
+    assert stages.TRACKING_TARGETS["dagshub"].endswith("/SiR1979/prediction_severity_car_accidents.mlflow")
+    assert stages.TRACKING_TARGETS["none"] == ""
+
+
+def test_tracking_overlay_joins_the_mlflow_network_and_passes_credentials_by_name():
+    overlay = yaml.safe_load((ROOT / "compose.airflow.tracking.yaml").read_text(encoding="utf-8"))
+    scheduler = overlay["services"]["airflow-scheduler"]
+    assert set(overlay["services"]) == {"airflow-scheduler"}
+    assert scheduler["networks"] == ["default", "tracking"]
+    assert overlay["networks"]["tracking"] == {"external": True, "name": "car-accident_default"}
+    for name, value in scheduler["environment"].items():
+        assert value == f"${{{name}:-}}"
+
+
 def test_compose_mounts_raw_read_only_and_exposes_the_ui_locally():
     compose = yaml.safe_load((ROOT / "compose.airflow.yaml").read_text(encoding="utf-8"))
     services = compose["services"]
@@ -81,11 +103,30 @@ def dag():
 def test_dag_runs_the_stages_in_order_after_creating_the_run_directory(dag):
     assert dag.schedule is None or str(dag.timetable.summary) == "None"
     assert dag.max_active_runs == 1
-    chain = ["create_run_directory", *stages.STAGE_ORDER]
-    assert set(dag.task_ids) == set(chain)
+    chain = ["create_run_directory", *stages.STAGE_ORDER, "track"]
+    assert set(dag.task_ids) == {*chain, "finish"}
     for upstream, downstream in zip(chain, chain[1:]):
         assert dag.get_task(downstream).upstream_task_ids == {upstream}
-    assert dag.get_task("evaluate").downstream_task_ids == set()
+
+
+def test_track_also_runs_after_a_failed_stage_and_finish_carries_the_result(dag):
+    assert dag.get_task("track").trigger_rule == "all_done"
+    finish = dag.get_task("finish")
+    assert finish.trigger_rule == "all_success"
+    assert finish.upstream_task_ids == {"evaluate", "track"}
+    assert [task.task_id for task in dag.leaves] == ["finish"]
+
+
+def test_track_records_the_run_with_its_airflow_run_id(dag):
+    import reference_pipeline as module
+
+    task = dag.get_task("track")
+    assert task.cwd == stages.PROJECT_DIRECTORY
+    assert task.env["AIRFLOW_RUN_ID"] == "{{ run_id }}"
+    command = " ".join([stages.RUNTIME_PYTHON, *stages.track_arguments(module.RUN_DIRECTORY, module.CRITERIA, module.TRACKING_URI)])
+    assert command in task.bash_command
+    assert "tracking_target=none" in task.bash_command
+    assert dag.params["tracking_target"] == "local"
 
 
 def test_dag_tasks_call_the_stage_commands_with_the_runtime_python(dag):

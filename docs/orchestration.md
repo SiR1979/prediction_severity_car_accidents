@@ -27,9 +27,11 @@ Three entry points run the same commands:
 - `compose.airflow.yaml` with the DAG `reference_pipeline` (Phase 3, #26): one
   Airflow task per stage, started manually. See "Run with Airflow" below.
 
-The stages record no MLflow run. Tracked runs keep using the `pipeline-run` job
-and the launcher (tracking.md). MLflow tracking of stage and Airflow runs is
-planned in #27.
+The stages themselves record no MLflow run. Airflow records each run after
+evaluate with `src/tracking/track_stage_run.py` ("Track Airflow runs in MLflow"
+below, #27). The same recorder is meant for `dvc repro` (`--orchestrator dvc`);
+that integration is still open in #27. Tracked runs of the launcher keep using
+the `pipeline-run` job (tracking.md).
 
 ## Run with DVC
 
@@ -70,7 +72,8 @@ Airflow 3.3.2 runs locally with the LocalExecutor and PostgreSQL. The DAG
 someone triggers it, and then runs without further input:
 
 ```text
-create_run_directory -> prepare -> train -> evaluate
+create_run_directory -> prepare -> train -> evaluate -> track -> finish
+(finish also waits directly for evaluate)
 ```
 
 `create_run_directory` creates a new directory `data/airflow_runs/<run ID>/`
@@ -79,6 +82,10 @@ image and the criteria file. It fails if the directory already exists, so no
 run reuses outputs. The three stage tasks then call the commands of `dvc.yaml`
 with this run directory, using the runtime requirements in their own virtual
 environment (`/opt/runtime` in `airflow/Dockerfile`). Tasks are not retried.
+`track` runs after evaluate even when a stage failed and records the run in
+MLflow (next section). `finish` does nothing itself; it needs both evaluate and
+track to succeed, so the DAG run fails when the gate fails or the run could not
+be recorded.
 
 Start Airflow from the repository root, with the raw data in `data/raw/`
 (versioning.md). Build from a clean, committed state so that the recorded
@@ -133,16 +140,76 @@ docker compose -f compose.airflow.yaml exec airflow-scheduler airflow dags trigg
 
 A failed gate shows up in three places:
 
-- DAG grid: the task `evaluate` is red (failed) and the run is marked failed;
-  `create_run_directory`, `prepare` and `train` stay green.
+- DAG grid: the task `evaluate` is red (failed), `finish` is orange
+  (upstream failed) and the run is marked failed; `create_run_directory`,
+  `prepare`, `train` and `track` stay green.
 - Log of `evaluate`: one line per check, for example
   `Gate check macro_f1: observed 0.7429, minimum 1.0000, failed.`, then
   `Quality gate failed.` and `Command exited with return code 1`.
 - Run directory: `acceptance_report.json` with `gate_status: failed` and
   `model_quality_approval: NOT_ESTABLISHED`.
 
+- MLflow: the run of this Airflow run has status `FAILED`, tag
+  `gate_status=failed` and `failed_stage=evaluate`.
+
 A stage error (exit code 2) also fails the task; its log shows the exception
-instead of the gate checks.
+instead of the gate checks. `track` still records the run as `FAILED` with the
+outputs that exist and `failed_stage` set to the stage that did not complete.
+
+### Track Airflow runs in MLflow
+
+The task `track` calls `python -m src.tracking.track_stage_run` in the runtime
+environment. The parameter `tracking_target` selects where it records:
+
+| `tracking_target` | MLflow | Needs |
+| --- | --- | --- |
+| `local` (default) | `http://mlflow:5000`, the service of `compose.tracking.yaml` | MLflow running and `compose.airflow.tracking.yaml` |
+| `dagshub` | `https://dagshub.com/SiR1979/prediction_severity_car_accidents.mlflow` | `MLFLOW_TRACKING_USERNAME` and `MLFLOW_TRACKING_PASSWORD` in the shell that starts Airflow, and `compose.airflow.tracking.yaml` |
+| `none` | nothing recorded; `track` only logs that tracking is off | – |
+
+Start MLflow first, then Airflow with the tracking overlay, which connects the
+scheduler to the MLflow network `car-accident_default` and passes the DagsHub
+credentials by name:
+
+```bash
+mkdir -p data/tracking data/airflow_runs
+docker compose -f compose.yaml -f compose.tracking.yaml up -d --wait mlflow
+SOURCE_COMMIT=$(git rev-parse HEAD) docker compose -f compose.airflow.yaml -f compose.airflow.tracking.yaml up -d --build --wait
+docker compose -f compose.airflow.yaml exec airflow-scheduler airflow dags trigger reference_pipeline --conf '{"tracking_target": "local"}'
+```
+
+Each Airflow run becomes one MLflow run in the experiment
+`car_accident_stage_runs`, named after the run directory. Find it by the
+Airflow run ID in the MLflow UI (http://127.0.0.1:5000) with the filter
+`tags.airflow_run_id = '<run ID>'`. The run holds:
+
+- Tags: `orchestrator=airflow`, `orchestrator_run_id` and `airflow_run_id`,
+  `source_commit`, `gate_status`, `model_quality_approval`, `failed_stage`,
+  `approved_for_delivery=false`, the SHA-256 of the criteria file and the
+  versions below.
+- Parameters: `quality_gate`, criteria version and minima, contract version and
+  the estimator configuration from `validation_report.json`.
+- Metrics: model and training majority metrics, the macro F1 gain and
+  `quality_gate_passed` (1 or 0).
+- Artifacts: all run outputs (reports, prepared CSVs, model), `airflow_run.json`
+  and `run_versions.json`.
+
+Data and model versions use the same MD5 hash that DVC writes into
+`dvc.lock`, plus SHA-256: `raw_data_dvc_md5`, `prepared_data_dvc_md5` (a
+`.dir` hash over the four CSVs), `model_dvc_md5` and `model_sha256`.
+`run_versions.json` lists every file with SHA-256 and size. A prepared data
+hash equal to the one in `dvc.lock` means the bytes are identical to the DVC
+output; the model hash differs per run because the forest is unseeded.
+
+Before it creates anything in MLflow, the recorder checks the gate report
+against the criteria and the current bytes of the evaluated inputs (the same
+check as staged runs, staged_tracking.md), that `airflow_run.json` belongs to
+this Airflow run, and that no MLflow run exists for it yet. Every artifact is
+downloaded again and compared by SHA-256; tags, parameters and metrics are read
+back. The result, including the MLflow run ID, is written to
+`mlflow_tracking.json` in the run directory. A run is never recorded twice; if
+`track` fails, the run directory keeps the reason and the MLflow run, if one was
+created, is set to `FAILED`.
 
 ## Quality gate
 
@@ -189,6 +256,9 @@ matching `dvc.lock`. Authentication is described in versioning.md.
 `src/test_pipeline_stages.py` checks the stages with doubles and that
 `dvc.yaml` and `compose.pipeline.yaml` run identical commands.
 `src/test_airflow_dag.py` checks that the Airflow tasks run the `dvc.yaml`
-commands in the same order; its DAG checks run in the CI job "Airflow DAG",
-which builds the Airflow image and loads the DAG there.
+commands in the same order, followed by `track` and `finish`; its DAG checks
+run in the CI job "Airflow DAG", which builds the Airflow image and loads the
+DAG there. `src/tracking/test_track_stage_run.py` checks the recorder with a
+fake MLflow transport, and that its prepared data hash equals `dvc.lock` when
+local `dvc repro` outputs exist.
 `src/test_accept_run.py` checks the gate. CI performs no real training.

@@ -1,0 +1,21 @@
+# Optional addition to compose.airflow.yaml for the DAG task `track` (MLflow).
+# Use both files together:
+#   docker compose -f compose.airflow.yaml -f compose.airflow.tracking.yaml up -d
+# The scheduler runs the tasks (LocalExecutor), so only it needs these settings.
+# - tracking_target=local: joins the network of the MLflow service from
+#   compose.tracking.yaml (project car-accident), which must already run.
+# - tracking_target=dagshub: passes the DagsHub credentials by name from the
+#   launching shell; their values never appear in this file.
+name: car-accident-airflow
+
+services:
+  airflow-scheduler:
+    networks: [default, tracking]
+    environment:
+      MLFLOW_TRACKING_USERNAME: ${MLFLOW_TRACKING_USERNAME:-}
+      MLFLOW_TRACKING_PASSWORD: ${MLFLOW_TRACKING_PASSWORD:-}
+
+networks:
+  tracking:
+    external: true
+    name: car-accident_default

@@ -17,7 +17,7 @@ Components
 | --- | --- | --- |
 | Stage pipeline prepare → train → evaluate | `dvc.yaml`, `src/pipeline_stages.py` | [docs/orchestration.md](docs/orchestration.md) |
 | One container per stage | `compose.pipeline.yaml` | [docs/orchestration.md](docs/orchestration.md) |
-| Airflow DAG for the stages, started manually | `compose.airflow.yaml`, `airflow/` | [docs/orchestration.md](docs/orchestration.md#run-with-airflow) |
+| Airflow DAG for the stages, started manually, with MLflow tracking per run | `compose.airflow.yaml`, `compose.airflow.tracking.yaml`, `airflow/`, `src/tracking/track_stage_run.py` | [docs/orchestration.md](docs/orchestration.md#run-with-airflow) |
 | Evaluation and quality gate | `src/evaluate_run.py`, `src/accept_run.py`, `src/acceptance_criteria.json` | [docs/evaluation.md](docs/evaluation.md) |
 | Data and model versioning (DVC, DagsHub remote) | `.dvc/config`, `versioning/`, `dvc.lock` | [docs/versioning.md](docs/versioning.md) |
 | Experiment tracking (MLflow, local or DagsHub) | `compose.tracking.yaml`, `src/tracking/`, `scripts/run_tracked_pipeline.ps1` | [docs/tracking.md](docs/tracking.md) |
