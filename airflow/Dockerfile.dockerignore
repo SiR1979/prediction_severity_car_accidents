@@ -1,0 +1,14 @@
+**
+!airflow/Dockerfile
+!airflow/dags/
+!airflow/dags/**
+!airflow/gate_failure_demo_criteria.json
+!requirements-runtime.txt
+!src/
+!src/**
+**/__pycache__/
+**/*.pyc
+**/*.joblib
+**/.env
+**/.env.*
+**/secrets.toml

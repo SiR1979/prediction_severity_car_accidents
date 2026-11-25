@@ -18,16 +18,18 @@ All stages call `src/pipeline_stages.py`. Preprocessing, training, technical
 validation and evaluation are the unchanged reference functions also used by
 `src/run_pipeline.py`. No stage overwrites an existing output.
 
-Two entry points run the same commands:
+Three entry points run the same commands:
 
 - `dvc.yaml` with `dvc repro`: reruns only changed stages and records hashes in
   `dvc.lock`. This is the orchestration for Phase 2.
 - `compose.pipeline.yaml`: one finite container per stage from the runtime
   image. A service starts only after the previous one completed successfully.
+- `compose.airflow.yaml` with the DAG `reference_pipeline` (Phase 3, #26): one
+  Airflow task per stage, started manually. See "Run with Airflow" below.
 
 The stages record no MLflow run. Tracked runs keep using the `pipeline-run` job
-and the launcher (tracking.md). Airflow follows in Phase 3, as confirmed by the
-supervisor, and is to call the same stage commands.
+and the launcher (tracking.md). MLflow tracking of stage and Airflow runs is
+planned in #27.
 
 ## Run with DVC
 
@@ -60,6 +62,87 @@ docker compose -f compose.pipeline.yaml down
 separate directory so that Compose runs do not change files that DVC manages.
 The containers have no network, a read-only root filesystem, read-only raw data
 and no added capabilities.
+
+## Run with Airflow
+
+Airflow 3.3.2 runs locally with the LocalExecutor and PostgreSQL. The DAG
+`reference_pipeline` (`airflow/dags/`) has no schedule: a run starts only when
+someone triggers it, and then runs without further input:
+
+```text
+create_run_directory -> prepare -> train -> evaluate
+```
+
+`create_run_directory` creates a new directory `data/airflow_runs/<run ID>/`
+and writes `airflow_run.json` with the Airflow run ID, the source commit of the
+image and the criteria file. It fails if the directory already exists, so no
+run reuses outputs. The three stage tasks then call the commands of `dvc.yaml`
+with this run directory, using the runtime requirements in their own virtual
+environment (`/opt/runtime` in `airflow/Dockerfile`). Tasks are not retried.
+
+Start Airflow from the repository root, with the raw data in `data/raw/`
+(versioning.md). Build from a clean, committed state so that the recorded
+commit describes the code that ran:
+
+```bash
+mkdir -p data/airflow_runs
+SOURCE_COMMIT=$(git rev-parse HEAD) docker compose -f compose.airflow.yaml up -d --build --wait
+```
+
+The UI is at http://127.0.0.1:8081 (user and password `airflow`, or
+`AIRFLOW_ADMIN_USER` and `AIRFLOW_ADMIN_PASSWORD` from `.env` on the first
+start). The setup is for local use only: it binds to 127.0.0.1 and uses default
+local secrets. On Linux, set `AIRFLOW_UID=$(id -u)` so that run files belong
+to your user.
+
+Trigger a run in the UI (DAG `reference_pipeline`, button "Trigger") or with
+the CLI:
+
+```bash
+docker compose -f compose.airflow.yaml exec airflow-scheduler airflow dags trigger reference_pipeline
+docker compose -f compose.airflow.yaml exec airflow-scheduler airflow dags list-runs reference_pipeline
+```
+
+Stop with `docker compose -f compose.airflow.yaml down`; add `-v` to also
+delete the Airflow database and logs. Run directories stay in
+`data/airflow_runs/` (ignored by Git).
+
+### A failed quality gate in Airflow
+
+The parameter `quality_gate` selects the criteria: `team` (default,
+`src/acceptance_criteria.json`) or `failure_demo`
+(`airflow/gate_failure_demo_criteria.json`, all minima 1.0). Other values are
+rejected when the run is triggered. The demo only makes the gate stricter; it
+never approves a model.
+
+With the reference data the gate fails in every `failure_demo` run, whatever
+the model: the training majority baseline has a macro F1 of about 0.396, so the
+macro F1 gain over that baseline can be at most about 1 − 0.396 = 0.604, below
+the demo minimum of 1.0. In the run shown in PR #38
+(`manual__2026-11-18T14:33:54.044970+00:00`) all three checks failed:
+
+| Check | Observed | Demo minimum |
+| --- | --- | --- |
+| macro F1 | 0.7429 | 1.0 |
+| balanced accuracy | 0.7341 | 1.0 |
+| macro F1 gain over training majority (baseline 0.3955) | 0.3474 | 1.0 |
+
+```bash
+docker compose -f compose.airflow.yaml exec airflow-scheduler airflow dags trigger reference_pipeline --conf '{"quality_gate": "failure_demo"}'
+```
+
+A failed gate shows up in three places:
+
+- DAG grid: the task `evaluate` is red (failed) and the run is marked failed;
+  `create_run_directory`, `prepare` and `train` stay green.
+- Log of `evaluate`: one line per check, for example
+  `Gate check macro_f1: observed 0.7429, minimum 1.0000, failed.`, then
+  `Quality gate failed.` and `Command exited with return code 1`.
+- Run directory: `acceptance_report.json` with `gate_status: failed` and
+  `model_quality_approval: NOT_ESTABLISHED`.
+
+A stage error (exit code 2) also fails the task; its log shows the exception
+instead of the gate checks.
 
 ## Quality gate
 
@@ -105,4 +188,7 @@ matching `dvc.lock`. Authentication is described in versioning.md.
 
 `src/test_pipeline_stages.py` checks the stages with doubles and that
 `dvc.yaml` and `compose.pipeline.yaml` run identical commands.
+`src/test_airflow_dag.py` checks that the Airflow tasks run the `dvc.yaml`
+commands in the same order; its DAG checks run in the CI job "Airflow DAG",
+which builds the Airflow image and loads the DAG there.
 `src/test_accept_run.py` checks the gate. CI performs no real training.
