@@ -93,6 +93,13 @@ target/
 *.joblib
 # Copied for local app tests; the app image bakes it in (compose.app.yaml)
 /src/app/example_features.json
+<<<<<<< HEAD
+# Local Python virtual environment
+.venv/
+=======
 
 # Airflow run directories (compose.airflow.yaml)
 /data/airflow_runs/
+>>>>>>> origin/master
+/data/airflow_runs/
+.venv/

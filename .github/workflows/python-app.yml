@@ -82,3 +82,40 @@ jobs:
         package-manager-cache: false
     - name: Test app logic
       run: node --test --test-reporter=tap src/app/test_app_logic.cjs
+  docker-ci:
+    name: Docker image builds and Compose validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Validate Compose configurations
+        env:
+          DVC_LOCAL_STORE: /tmp/dvc-store
+        run: |
+          docker compose -f compose.yaml -f compose.api.yaml -f compose.app.yaml config --quiet
+          docker compose -f compose.pipeline.yaml config --quiet
+          docker compose -f compose.tracking.yaml config --quiet
+          docker compose -f compose.versioning.yaml config --quiet
+
+      - name: Build runtime image
+        run: docker compose -f compose.yaml build workspace
+
+      - name: Build API image
+        run: docker compose -f compose.yaml -f compose.api.yaml build api
+
+      - name: Build App image
+        run: docker compose -f compose.yaml -f compose.api.yaml -f compose.app.yaml build app
+
+      - name: Build pipeline image
+        run: docker compose -f compose.pipeline.yaml build
+
+      - name: Build tracking images
+        run: docker compose -f compose.tracking.yaml build
+
+      - name: Build versioning image
+        run: docker compose -f compose.versioning.yaml build
