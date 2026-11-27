@@ -76,6 +76,10 @@ def main():
             result = train(args.run_dir)
         else:
             report = evaluate(args.run_dir, args.criteria)
+            # One line per check, so orchestrator logs show why a gate failed.
+            for check in report.get("checks", []):
+                print(f"Gate check {check['name']}: observed {check['observed']:.4f}, "
+                      f"minimum {check['minimum']:.4f}, {'passed' if check['passed'] else 'failed'}.")
             print(f"Quality gate {report['gate_status']}.")
             # A failed gate stops `dvc repro` and the dependent Compose services.
             return 0 if report["gate_status"] == "passed" else 1

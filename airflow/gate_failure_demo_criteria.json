@@ -1,0 +1,7 @@
+{
+  "criteria_version": "gate-failure-demo-not-for-acceptance",
+  "status": "team_defined",
+  "min_macro_f1": 1.0,
+  "min_balanced_accuracy": 1.0,
+  "min_macro_f1_gain_over_training_majority": 1.0
+}

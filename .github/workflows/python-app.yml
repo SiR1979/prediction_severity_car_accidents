@@ -54,6 +54,22 @@ jobs:
         export RUN_VERSION_TEST_ROOT
         pytest
 
+  airflow-dag:
+    name: Airflow DAG
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build the Airflow image
+      run: docker compose -f compose.airflow.yaml build
+    - name: Load the DAG and test its structure in the image
+      run: |
+        docker run --rm --entrypoint bash -e REQUIRE_AIRFLOW=1 -v "$PWD:/repo:ro" car-accident-airflow:local -c '
+          set -e
+          pip install --quiet --user pytest==8.4.2
+          cp -r /repo/airflow /repo/src /repo/dvc.yaml /repo/compose.airflow.yaml /repo/pytest.ini /tmp/
+          cd /tmp
+          python -m pytest -q -p no:cacheprovider src/test_airflow_dag.py'
+
   javascript-tests:
     name: JavaScript app logic
     runs-on: ubuntu-latest

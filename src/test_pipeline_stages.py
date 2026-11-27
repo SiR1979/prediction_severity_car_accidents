@@ -113,6 +113,21 @@ def test_cli_exit_code_follows_the_gate(tmp_path, gate_status, code):
         assert stages.main() == code
 
 
+def test_cli_prints_each_gate_check(tmp_path, capsys):
+    argv = ["pipeline_stages.py", "evaluate", "--run-dir", str(tmp_path), "--criteria", "criteria.json"]
+    report = {"gate_status": "failed", "checks": [
+        {"name": "macro_f1", "observed": 0.6, "minimum": 0.65, "passed": False},
+        {"name": "balanced_accuracy", "observed": 0.7, "minimum": 0.65, "passed": True},
+    ]}
+    with patch.object(stages, "evaluate", return_value=report), patch("sys.argv", argv):
+        assert stages.main() == 1
+    assert capsys.readouterr().out.splitlines() == [
+        "Gate check macro_f1: observed 0.6000, minimum 0.6500, failed.",
+        "Gate check balanced_accuracy: observed 0.7000, minimum 0.6500, passed.",
+        "Quality gate failed.",
+    ]
+
+
 def test_stage_errors_return_a_distinct_exit_code(tmp_path):
     argv = ["pipeline_stages.py", "train", "--run-dir", str(tmp_path / "missing")]
     with patch("sys.argv", argv):
