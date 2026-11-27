@@ -93,3 +93,5 @@ target/
 *.joblib
 # Copied for local app tests; the app image bakes it in (compose.app.yaml)
 /src/app/example_features.json
+# Local Python virtual environment
+.venv/
